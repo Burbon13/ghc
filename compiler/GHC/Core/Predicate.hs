@@ -25,6 +25,7 @@ module GHC.Core.Predicate (
   -- Implicit parameters
   isIPLikePred, hasIPSuperClasses, isIPTyCon, isIPClass,
   isCallStackTy, isCallStackPred, isCallStackPredTy,
+  isIPPred_maybe,
 
   -- Evidence variables
   DictId, isEvVar, isDictId
@@ -45,7 +46,9 @@ import GHC.Builtin.Names
 import GHC.Utils.Outputable
 import GHC.Utils.Misc
 import GHC.Utils.Panic
-import GHC.Data.FastString( FastString )
+import GHC.Data.FastString
+
+import Control.Monad ( guard )
 
 
 -- | A predicate in the solver. The solver tries to prove Wanted predicates
@@ -292,6 +295,15 @@ isCallStackTy ty
   = False
 
 
+-- | Decomposes a predicate if it is an implicit parameter. Does not look in
+-- superclasses. See also [Local implicit parameters].
+isIPPred_maybe :: Type -> Maybe (FastString, Type)
+isIPPred_maybe ty =
+  do (tc,[t1,t2]) <- splitTyConApp_maybe ty
+     guard (isIPTyCon tc)
+     x <- isStrLitTy t1
+     return (x,t2)
+
 {- Note [Local implicit parameters]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The function isIPLikePred tells if this predicate, or any of its
@@ -321,7 +333,7 @@ Several wrinkles
   instantiate and check each superclass, one by one, in
   hasIPSuperClasses.
 
-* With -XRecursiveSuperClasses, the superclass hunt can go on forever,
+* With -XUndecidableSuperClasses, the superclass hunt can go on forever,
   so we need a RecTcChecker to cut it off.
 
 * Another apparent additional complexity involves type families. For
