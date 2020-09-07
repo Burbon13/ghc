@@ -1027,9 +1027,11 @@ metaConsDataConName  = dcQual gHC_GENERICS (fsLit "MetaCons")  metaConsDataConKe
 metaSelDataConName   = dcQual gHC_GENERICS (fsLit "MetaSel")   metaSelDataConKey
 
 -- Primitive Int
-divIntName, modIntName :: Name
+divIntName, divInt64Name, modIntName, modInt64Name :: Name
 divIntName = varQual gHC_CLASSES (fsLit "divInt#") divIntIdKey
+divInt64Name = varQual gHC_CLASSES (fsLit "divInt64#") divInt64IdKey
 modIntName = varQual gHC_CLASSES (fsLit "modInt#") modIntIdKey
+modInt64Name = varQual gHC_CLASSES (fsLit "modInt64#") modInt64IdKey
 
 -- Base strings Strings
 unpackCStringName, unpackCStringFoldrName,
@@ -2251,7 +2253,9 @@ wildCardKey, absentErrorIdKey, augmentIdKey, appendIdKey,
     realWorldPrimIdKey, recConErrorIdKey,
     unpackCStringUtf8IdKey, unpackCStringAppendUtf8IdKey, unpackCStringFoldrUtf8IdKey,
     unpackCStringIdKey, unpackCStringAppendIdKey, unpackCStringFoldrIdKey,
-    typeErrorIdKey, divIntIdKey, modIntIdKey,
+    typeErrorIdKey,
+    divIntIdKey, divInt64IdKey,
+    modIntIdKey, modInt64IdKey,
     absentSumFieldErrorIdKey, cstringLengthIdKey,
     raiseOverflowIdKey, raiseUnderflowIdKey, raiseDivZeroIdKey
     :: Unique
@@ -2284,7 +2288,9 @@ unpackCStringFoldrIdKey       = mkPreludeMiscIdUnique 22
 voidPrimIdKey                 = mkPreludeMiscIdUnique 23
 typeErrorIdKey                = mkPreludeMiscIdUnique 24
 divIntIdKey                   = mkPreludeMiscIdUnique 25
+divInt64IdKey                 = mkPreludeMiscIdUnique 691
 modIntIdKey                   = mkPreludeMiscIdUnique 26
+modInt64IdKey                 = mkPreludeMiscIdUnique 692
 cstringLengthIdKey            = mkPreludeMiscIdUnique 27
 raiseOverflowIdKey            = mkPreludeMiscIdUnique 28
 raiseUnderflowIdKey           = mkPreludeMiscIdUnique 29
