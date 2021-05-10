@@ -114,6 +114,7 @@ module GHC.Types.Id (
         setIdDemandInfo,
         setIdDmdSig,
         setIdCprSig,
+        setIdCbvMarks,
 
         idDemandInfo,
         idDmdSig,
@@ -181,7 +182,8 @@ infixl  1 `setIdUnfolding`,
           `setIdCprSig`,
 
           `asJoinId`,
-          `asJoinId_maybe`
+          `asJoinId_maybe`,
+          `setIdCbvMarks`
 
 {-
 ************************************************************************
@@ -612,6 +614,8 @@ asJoinId id arity = warnPprTrace (not (isLocalId id))
   where
     is_vanilla_or_join id = case Var.idDetails id of
                               VanillaId -> True
+                              -- Can workers become join ids?
+                              StrictWorkerId {} -> pprTraceDebug "asJoinId (strict worker)" (ppr id) True
                               JoinId {} -> True
                               _         -> False
 
@@ -710,6 +714,12 @@ idDemandInfo       id = demandInfo (idInfo id)
 
 setIdDemandInfo :: Id -> Demand -> Id
 setIdDemandInfo id dmd = modifyIdInfo (`setDemandInfo` dmd) id
+
+setIdCbvMarks :: Id -> [StrictnessMark] -> Id
+setIdCbvMarks id marks = case idDetails id of
+  VanillaId -> id `setIdDetails` (StrictWorkerId marks)
+  _ -> pprTrace "setIdCbvMarks: Unable to set cbv marks for" (ppr id <+> ppr marks) id
+
 
 setCaseBndrEvald :: StrictnessMark -> Id -> Id
 -- Used for variables bound by a case expressions, both the case-binder
