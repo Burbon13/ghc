@@ -558,7 +558,10 @@ initGhcMonad mb_top_dir
                    ; mySettings <- initSysTools top_dir
                    ; myLlvmConfig <- lazyInitLlvmConfig top_dir
                    ; dflags <- initDynFlags (defaultDynFlags mySettings myLlvmConfig)
-                   ; hsc_env <- newHscEnv dflags
+                   ; let home_unit_graph = unitEnv_singleton
+                                              (homeUnitId_ dflags)
+                                              (mkHomeUnitEnv dflags emptyHomePackageTable Nothing)
+                   ; hsc_env <- newHscEnv (homeUnitId_ dflags) home_unit_graph
                    ; checkBrokenTablesNextToCode (hsc_logger hsc_env) dflags
                    ; setUnsafeGlobalDynFlags dflags
                       -- c.f. DynFlags.parseDynamicFlagsFull, which
@@ -638,11 +641,31 @@ setSessionDynFlags dflags0 = do
   logger <- getLogger
   dflags1 <- checkNewDynFlags logger dflags0
   hsc_env <- getSession
-  let old_unit_env    = hsc_unit_env hsc_env
-  let cached_unit_dbs = ue_unit_dbs old_unit_env
-  (dbs,unit_state,home_unit,mconstants) <- liftIO $ initUnits logger dflags1 cached_unit_dbs
+  -- TODO: all this initialisation should be moved into a function
+  let old_unit_env' = hsc_unit_env hsc_env
+      hug = ue_home_unit_graph old_unit_env'
+      -- update the dynflags this way to avoid too early consistency checks
+      old_unit_env = old_unit_env'
+        { ue_home_unit_graph = unitEnv_adjust (\hue -> hue { homeUnitEnv_dflags = dflags1}) (ue_currentUnit old_unit_env') hug
+        }
+  home_unit_graph <- forM (ue_home_unit_graph old_unit_env) $ \homeUnitEnv -> do
+    let cached_unit_dbs = homeUnitEnv_unit_dbs homeUnitEnv
+        hue_flags = homeUnitEnv_dflags homeUnitEnv
+        old_hpt = homeUnitEnv_hpt homeUnitEnv
+        home_units = unitEnv_keys hug
 
-  dflags <- liftIO $ updatePlatformConstants dflags1 mconstants
+    (dbs,unit_state,home_unit,mconstants) <- liftIO $ initUnits logger hue_flags cached_unit_dbs home_units
+
+    updated_dflags <- liftIO $ updatePlatformConstants hue_flags mconstants
+    pure $ HomeUnitEnv
+      { homeUnitEnv_units = unit_state
+      , homeUnitEnv_unit_dbs = Just dbs
+      , homeUnitEnv_dflags = updated_dflags
+      , homeUnitEnv_hpt = old_hpt
+      , homeUnitEnv_home_unit = Just home_unit
+      }
+
+  let dflags = homeUnitEnv_dflags $ unitEnv_lookup (ue_currentUnit old_unit_env) home_unit_graph
 
   -- Interpreter
   interp <- if gopt Opt_ExternalInterpreter dflags
@@ -680,22 +703,31 @@ setSessionDynFlags dflags0 = do
       return Nothing
 #endif
 
-  let unit_env = UnitEnv
-        { ue_platform  = targetPlatform dflags
-        , ue_namever   = ghcNameVersion dflags
-        , ue_home_unit = Just home_unit
-        , ue_hpt       = ue_hpt old_unit_env
-        , ue_eps       = ue_eps old_unit_env
-        , ue_units     = unit_state
-        , ue_unit_dbs  = Just dbs
+  let unit_env0 = UnitEnv
+        { ue_platform        = targetPlatform dflags
+        , ue_namever         = ghcNameVersion dflags
+        , ue_home_unit_graph = home_unit_graph
+        , ue_current_unit    = ue_current_unit old_unit_env
+        , ue_eps             = ue_eps old_unit_env
         }
 
-  modifySession $ \h -> hscSetFlags dflags $
+  -- if necessary, change the key for the currently active unit
+  -- as the dynflags might have been changed
+  let !unit_env1 = assertUnitEnvInvariant $
+        if homeUnitId_ dflags /= ue_currentUnit old_unit_env
+          then
+            ue_renameUnitId
+                  (ue_currentUnit old_unit_env)
+                  (homeUnitId_ dflags)
+                  unit_env0
+          else unit_env0
+
+  modifySession $ \h -> hscSetFlags dflags
                         h{ hsc_IC = (hsc_IC h){ ic_dflags = dflags }
                          , hsc_interp = hsc_interp h <|> interp
                            -- we only update the interpreter if there wasn't
                            -- already one set up
-                         , hsc_unit_env = unit_env
+                         , hsc_unit_env = unit_env1
                          }
 
   invalidateModSummaryCache
@@ -717,22 +749,35 @@ setProgramDynFlags_ invalidate_needed dflags = do
   let changed = packageFlagsChanged dflags_prev dflags0
   if changed
     then do
-        old_unit_env <- hsc_unit_env <$> getSession
-        let cached_unit_dbs = ue_unit_dbs old_unit_env
-        (dbs,unit_state,home_unit,mconstants) <- liftIO $ initUnits logger dflags0 cached_unit_dbs
+        -- additionally, set checked dflags so we don't lose fixes
+        old_unit_env <- ue_setFlags dflags0 . hsc_unit_env <$> getSession
 
-        dflags1 <- liftIO $ updatePlatformConstants dflags0 mconstants
+        home_unit_graph <- forM (ue_home_unit_graph old_unit_env) $ \homeUnitEnv -> do
+          let cached_unit_dbs = homeUnitEnv_unit_dbs homeUnitEnv
+              dflags = homeUnitEnv_dflags homeUnitEnv
+              old_hpt = homeUnitEnv_hpt homeUnitEnv
+              home_units = unitEnv_keys (ue_home_unit_graph old_unit_env)
 
+          (dbs,unit_state,home_unit,mconstants) <- liftIO $ initUnits logger dflags cached_unit_dbs home_units
+
+          updated_dflags <- liftIO $ updatePlatformConstants dflags0 mconstants
+          pure HomeUnitEnv
+            { homeUnitEnv_units = unit_state
+            , homeUnitEnv_unit_dbs = Just dbs
+            , homeUnitEnv_dflags = updated_dflags
+            , homeUnitEnv_hpt = old_hpt
+            , homeUnitEnv_home_unit = Just home_unit
+            }
+
+        let dflags1 = homeUnitEnv_dflags $ unitEnv_lookup (ue_currentUnit old_unit_env) home_unit_graph
         let unit_env = UnitEnv
-              { ue_platform  = targetPlatform dflags1
-              , ue_namever   = ghcNameVersion dflags1
-              , ue_home_unit = Just home_unit
-              , ue_hpt       = ue_hpt old_unit_env
-              , ue_eps       = ue_eps old_unit_env
-              , ue_units     = unit_state
-              , ue_unit_dbs  = Just dbs
+              { ue_platform        = targetPlatform dflags1
+              , ue_namever         = ghcNameVersion dflags1
+              , ue_home_unit_graph = home_unit_graph
+              , ue_current_unit    = ue_currentUnit old_unit_env
+              , ue_eps             = ue_eps old_unit_env
               }
-        modifySession $ \h -> hscSetFlags dflags1 $ h{ hsc_unit_env = unit_env }
+        modifySession $ \h -> hscSetFlags dflags1 h{ hsc_unit_env = unit_env }
     else modifySession (hscSetFlags dflags0)
 
   when invalidate_needed $ invalidateModSummaryCache
@@ -1020,7 +1065,7 @@ unitIdOrHomeUnit mUnitId = do
 workingDirectoryChanged :: GhcMonad m => m ()
 workingDirectoryChanged = do
   hsc_env <- getSession
-  liftIO $ flushFinderCaches (hsc_FC hsc_env) (hsc_home_unit hsc_env)
+  liftIO $ flushFinderCaches (hsc_FC hsc_env) (hsc_unit_env hsc_env)
 
 
 -- %************************************************************************
@@ -1632,14 +1677,11 @@ showRichTokenStream ts = go startLoc ts ""
 -- using the algorithm that is used for an @import@ declaration.
 findModule :: GhcMonad m => ModuleName -> Maybe FastString -> m Module
 findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
-  let fc        = hsc_FC hsc_env
   let home_unit = hsc_home_unit hsc_env
-  let units     = hsc_units hsc_env
   let dflags    = hsc_dflags hsc_env
-  let fopts     = initFinderOpts dflags
   case maybe_pkg of
     Just pkg | not (isHomeUnit home_unit (fsToUnit pkg)) && pkg /= fsLit "this" -> liftIO $ do
-      res <- findImportedModule fc fopts units home_unit mod_name maybe_pkg
+      res <- findImportedModule hsc_env mod_name maybe_pkg
       case res of
         Found _ m -> return m
         err       -> throwOneError $ noModError hsc_env noSrcSpan mod_name err
@@ -1648,7 +1690,7 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
       case home of
         Just m  -> return m
         Nothing -> liftIO $ do
-           res <- findImportedModule fc fopts units home_unit mod_name maybe_pkg
+           res <- findImportedModule hsc_env mod_name maybe_pkg
            case res of
              Found loc m | not (isHomeModule home_unit m) -> return m
                          | otherwise -> modNotLoadedError dflags m loc

@@ -21,7 +21,9 @@ module GHC.Unit.Module.Graph
    , needsTemplateHaskellOrQQ
    , isTemplateHaskellOrQQNonBoot
    , showModMsg
-   , moduleGraphNodeModule)
+   , moduleGraphNodeModule
+   , moduleGraphNodeUnitId
+   )
 where
 
 import GHC.Prelude
@@ -50,7 +52,7 @@ import System.FilePath
 data ModuleGraphNode
   -- | Instantiation nodes track the instantiation of other units
   -- (backpack dependencies) with the holes (signatures) of the current package.
-  = InstantiationNode InstantiatedUnit
+  = InstantiationNode UnitId InstantiatedUnit
   -- | There is a module summary node for each module, signature, and boot module being built.
   | ModuleNode ExtendedModSummary
 
@@ -58,9 +60,15 @@ moduleGraphNodeModule :: ModuleGraphNode -> Maybe ExtendedModSummary
 moduleGraphNodeModule (InstantiationNode {}) = Nothing
 moduleGraphNodeModule (ModuleNode ems)    = Just ems
 
+moduleGraphNodeUnitId :: ModuleGraphNode -> UnitId
+moduleGraphNodeUnitId mgn =
+  case mgn of
+    InstantiationNode uid _iud -> uid
+    ModuleNode ems        -> (toUnitId (moduleUnit (ms_mod (emsModSummary ems))))
+
 instance Outputable ModuleGraphNode where
   ppr = \case
-    InstantiationNode iuid -> ppr iuid
+    InstantiationNode _ iuid -> ppr iuid
     ModuleNode ems -> ppr ems
 
 -- | A '@ModuleGraph@' contains all the nodes from the home package (only). See
@@ -99,7 +107,7 @@ needsTemplateHaskellOrQQ mg = mg_needs_th_or_qq mg
 mapMG :: (ModSummary -> ModSummary) -> ModuleGraph -> ModuleGraph
 mapMG f mg@ModuleGraph{..} = mg
   { mg_mss = flip fmap mg_mss $ \case
-      InstantiationNode iuid -> InstantiationNode iuid
+      InstantiationNode uid iuid -> InstantiationNode uid iuid
       ModuleNode (ExtendedModSummary ms bds) -> ModuleNode (ExtendedModSummary (f ms) bds)
   , mg_non_boot = mapModuleEnv f mg_non_boot
   }
@@ -146,14 +154,14 @@ extendMG ModuleGraph{..} ems@(ExtendedModSummary ms _) = ModuleGraph
   , mg_needs_th_or_qq = mg_needs_th_or_qq || isTemplateHaskellOrQQNonBoot ms
   }
 
-extendMGInst :: ModuleGraph -> InstantiatedUnit -> ModuleGraph
-extendMGInst mg depUnitId = mg
-  { mg_mss = InstantiationNode depUnitId : mg_mss mg
+extendMGInst :: ModuleGraph -> UnitId -> InstantiatedUnit -> ModuleGraph
+extendMGInst mg uid depUnitId = mg
+  { mg_mss = InstantiationNode uid depUnitId : mg_mss mg
   }
 
 extendMG' :: ModuleGraph -> ModuleGraphNode -> ModuleGraph
 extendMG' mg = \case
-  InstantiationNode depUnitId -> extendMGInst mg depUnitId
+  InstantiationNode uid depUnitId -> extendMGInst mg uid depUnitId
   ModuleNode ems -> extendMG mg ems
 
 mkModuleGraph :: [ExtendedModSummary] -> ModuleGraph
@@ -169,7 +177,7 @@ mkModuleGraph' = foldr (flip extendMG') emptyMG
 filterToposortToModules
   :: [SCC ModuleGraphNode] -> [SCC ModSummary]
 filterToposortToModules = mapMaybe $ mapMaybeSCC $ \case
-  InstantiationNode _ -> Nothing
+  InstantiationNode _ _ -> Nothing
   ModuleNode (ExtendedModSummary node _) -> Just node
   where
     -- This higher order function is somewhat bogus,
@@ -184,7 +192,7 @@ filterToposortToModules = mapMaybe $ mapMaybeSCC $ \case
         as -> Just $ CyclicSCC as
 
 showModMsg :: DynFlags -> Bool -> ModuleGraphNode -> SDoc
-showModMsg _ _ (InstantiationNode indef_unit) =
+showModMsg _ _ (InstantiationNode _uid indef_unit) =
   ppr $ instUnitInstanceOf indef_unit
 showModMsg dflags recomp (ModuleNode (ExtendedModSummary mod_summary _)) =
   if gopt Opt_HideSourcePaths dflags

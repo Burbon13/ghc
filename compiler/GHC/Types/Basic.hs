@@ -1166,6 +1166,14 @@ succeeded Failed    = False
 failed Succeeded = False
 failed Failed    = True
 
+instance Semigroup SuccessFlag where
+  Failed <> _ = Failed
+  _ <> Failed = Failed
+  x <> _      = x
+
+instance Monoid SuccessFlag where
+  mempty = Succeeded
+
 {-
 ************************************************************************
 *                                                                      *

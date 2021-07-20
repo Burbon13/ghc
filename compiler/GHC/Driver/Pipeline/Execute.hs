@@ -361,7 +361,7 @@ runCcPhase cc_phase pipe_env hsc_env input_fn = do
   let platform  = ue_platform unit_env
   let hcc       = cc_phase `eqPhase` HCc
 
-  let cmdline_include_paths = includePaths dflags
+  let cmdline_include_paths =  offsetIncludePaths dflags $ includePaths dflags
 
   -- HC files have the dependent packages stamped into them
   pkgs <- if hcc then getHCFilePackages input_fn else return []
@@ -382,10 +382,14 @@ runCcPhase cc_phase pipe_env hsc_env input_fn = do
   -- (#16737). Doing it in this way is simpler and also enable the C
   -- compiler to perform preprocessing and parsing in a single pass,
   -- but it may introduce inconsistency if a different pgm_P is specified.
-  let more_preprocessor_opts = concat
+  let opts = getOpts dflags opt_P
+      aug_imports | Just dir <- workingDirectory dflags = augmentImports dir opts
+                  | otherwise = opts
+
+      more_preprocessor_opts = concat
         [ ["-Xpreprocessor", i]
         | not hcc
-        , i <- getOpts dflags opt_P
+        , i <- aug_imports
         ]
 
   let gcc_extra_viac_flags = extraGccViaCFlags dflags
@@ -936,6 +940,15 @@ llvmOptions dflags =
                 ArchRISCV64 -> "lp64d"
                 _           -> ""
 
+
+
+offsetIncludePaths :: DynFlags -> IncludeSpecs -> IncludeSpecs
+offsetIncludePaths dflags (IncludeSpecs incs quotes impl)
+ | Just offset_dir <- workingDirectory dflags =
+     let offset fp | isAbsolute fp = fp
+                   | otherwise = offset_dir </> fp
+     in IncludeSpecs (map offset incs) (map offset quotes) (map offset impl)
+offsetIncludePaths _ p = p
 -- -----------------------------------------------------------------------------
 -- Running CPP
 
@@ -945,7 +958,7 @@ llvmOptions dflags =
 doCpp :: Logger -> TmpFs -> DynFlags -> UnitEnv -> Bool -> FilePath -> FilePath -> IO ()
 doCpp logger tmpfs dflags unit_env raw input_fn output_fn = do
     let hscpp_opts = picPOpts dflags
-    let cmdline_include_paths = includePaths dflags
+    let cmdline_include_paths = offsetIncludePaths dflags (includePaths dflags)
     let unit_state = ue_units unit_env
     pkg_include_dirs <- mayThrowUnitErr
                         (collectIncludeDirs <$> preloadUnitsInfo unit_env)

@@ -430,19 +430,21 @@ addUnit u = do
                , unitDatabaseUnits = [u]
                }
          in return (dbs ++ [newdb]) -- added at the end because ordering matters
-    (dbs,unit_state,home_unit,mconstants) <- liftIO $ initUnits logger dflags0 (Just newdbs)
+    (dbs,unit_state,home_unit,mconstants) <- liftIO $ initUnits logger dflags0 (Just newdbs) undefined
 
     -- update platform constants
     dflags <- liftIO $ updatePlatformConstants dflags0 mconstants
 
-    let unit_env = UnitEnv
+    let unit_env = ue_setUnits unit_state $ ue_setUnitDbs (Just dbs) $ UnitEnv
           { ue_platform  = targetPlatform dflags
           , ue_namever   = ghcNameVersion dflags
-          , ue_home_unit = Just home_unit
-          , ue_hpt       = ue_hpt old_unit_env
+          , ue_current_unit = homeUnitId home_unit
+
+          , ue_home_unit_graph =
+                unitEnv_singleton
+                    (homeUnitId home_unit)
+                    (mkHomeUnitEnv dflags (ue_hpt old_unit_env) (Just home_unit))
           , ue_eps       = ue_eps old_unit_env
-          , ue_units     = unit_state
-          , ue_unit_dbs  = Just dbs
           }
     setSession $ hscSetFlags dflags $ hsc_env { hsc_unit_env = unit_env }
 
@@ -558,12 +560,12 @@ mkBackpackMsg = do
           logger = hsc_logger hsc_env
           state = hsc_units hsc_env
           showMsg msg reason =
-            backpackProgressMsg level logger $ pprWithUnitState state $
+            backpackProgressMsg level logger $ ppr $ -- pprWithUnitState state $
                 showModuleIndex mod_index <>
                 msg <> showModMsg dflags (recompileRequired recomp) node
                     <> reason
       in case node of
-        InstantiationNode _ ->
+        InstantiationNode _ _ ->
           case recomp of
             MustCompile -> showMsg (text "Instantiating ") empty
             UpToDate
@@ -737,7 +739,7 @@ hsunitModuleGraph unit = do
             -- Using extendModSummaryNoDeps here is okay because we're making a leaf node
             -- representing a signature that can't depend on any other unit.
 
-    let graph_nodes = (ModuleNode <$> (nodes ++ req_nodes)) ++ (instantiationNodes (hsc_units hsc_env))
+    let graph_nodes = (ModuleNode <$> (nodes ++ req_nodes)) ++ (instantiationNodes (homeUnitId $ hsc_home_unit hsc_env) (hsc_units hsc_env))
         key_nodes = map mkNodeKey graph_nodes
     -- This error message is not very good but .bkp mode is just for testing so
     -- better to be direct rather than pretty.
@@ -810,7 +812,7 @@ summariseDecl pn hsc_src (L _ modname) (Just hsmod) = hsModuleToModSummary pn hs
 summariseDecl _pn hsc_src lmodname@(L loc modname) Nothing
     = do hsc_env <- getSession
          -- TODO: this looks for modules in the wrong place
-         r <- liftIO $ summariseModule hsc_env
+         r <- liftIO $ summariseModule hsc_env (hsc_home_unit hsc_env)
                          emptyModNodeMap -- GHC API recomp not supported
                          (hscSourceToIsBoot hsc_src)
                          lmodname

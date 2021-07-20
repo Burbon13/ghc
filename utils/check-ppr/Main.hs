@@ -9,6 +9,7 @@ import Control.Monad.IO.Class
 import GHC.Types.SrcLoc
 import GHC hiding (moduleName)
 import GHC.Hs.Dump
+import GHC.Driver.Env
 import GHC.Driver.Session
 import GHC.Driver.Ppr
 import GHC.Driver.Make
@@ -85,7 +86,7 @@ parseOneFile libdir fileName = do
          let dflags2 = dflags `gopt_set` Opt_KeepRawTokenStream
          _ <- setSessionDynFlags dflags2
          hsc_env <- getSession
-         ms <- liftIO $ summariseFile hsc_env [] fileName Nothing Nothing
+         ms <- liftIO $ summariseFile hsc_env (hsc_home_unit hsc_env) [] fileName Nothing Nothing
          case ms of
            Left _err -> error "parseOneFile"
            Right ems -> parseModule (emsModSummary ems)

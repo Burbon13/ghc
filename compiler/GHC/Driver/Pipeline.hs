@@ -302,9 +302,10 @@ compileOne' mHscMessage
          = (Interpreter, gopt_set (dflags2 { backend = Interpreter }) Opt_ForceRecomp)
          | otherwise
          = (backend dflags, dflags2)
-       dflags  = dflags3 { includePaths = addImplicitQuoteInclude old_paths [current_dir] }
+       dflags  = dflags3 { includePaths = offsetIncludePaths dflags3 $ addImplicitQuoteInclude old_paths [current_dir] }
        upd_summary = summary { ms_hspp_opts = dflags }
        hsc_env = hscSetFlags dflags hsc_env0
+
 
 -- ---------------------------------------------------------------------------
 -- Link

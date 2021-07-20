@@ -41,7 +41,7 @@ module GHC.Driver.Main
       newHscEnv
 
     -- * Compiling complete source files
-    , Messager, batchMsg
+    , Messager, batchMsg, batchMultiMsg
     , HscBackendAction (..), HscRecompStatus (..)
     , initModDetails
     , hscMaybeWriteIface
@@ -247,15 +247,15 @@ import GHC.Driver.GenerateCgIPEStub (generateCgIPEStub)
 %*                                                                      *
 %********************************************************************* -}
 
-newHscEnv :: DynFlags -> IO HscEnv
-newHscEnv dflags = do
+newHscEnv :: UnitId -> HomeUnitGraph -> IO HscEnv
+newHscEnv cur_unit home_unit_graph = do
     nc_var  <- initNameCache 'r' knownKeyNames
     fc_var  <- initFinderCache
     logger  <- initLogger
     tmpfs   <- initTmpFs
-    unit_env <- initUnitEnv (ghcNameVersion dflags) (targetPlatform dflags)
-    return HscEnv {  hsc_dflags         = dflags
-                  ,  hsc_logger         = setLogFlags logger (initLogFlags dflags)
+    let dflags = homeUnitEnv_dflags $ unitEnv_lookup cur_unit home_unit_graph
+    unit_env <- initUnitEnv cur_unit home_unit_graph (ghcNameVersion dflags) (targetPlatform dflags)
+    return HscEnv {  hsc_logger         = setLogFlags logger (initLogFlags dflags)
                   ,  hsc_targets        = []
                   ,  hsc_mod_graph      = emptyMG
                   ,  hsc_IC             = emptyInteractiveContext dflags
@@ -1068,8 +1068,13 @@ oneShotMsg logger recomp =
         _        -> return ()
 
 batchMsg :: Messager
-batchMsg hsc_env mod_index recomp node = case node of
-    InstantiationNode _ ->
+batchMsg = batchMsgWith (\_ _ _ _ -> empty)
+batchMultiMsg :: Messager
+batchMultiMsg = batchMsgWith (\_ _ _ node -> brackets (ppr (moduleGraphNodeUnitId node)))
+
+batchMsgWith :: (HscEnv -> (Int, Int) -> RecompileRequired -> ModuleGraphNode -> SDoc) -> Messager
+batchMsgWith extra hsc_env mod_index recomp node = case node of
+    InstantiationNode _uid _ ->
         case recomp of
             MustCompile -> showMsg (text "Instantiating ") empty
             UpToDate
@@ -1093,6 +1098,7 @@ batchMsg hsc_env mod_index recomp node = case node of
             compilationProgressMsg logger $
             (showModuleIndex mod_index <>
             msg <> showModMsg dflags (recompileRequired recomp) node)
+                <> extra hsc_env mod_index recomp node
                 <> reason
 
 --------------------------------------------------------------
@@ -1381,7 +1387,7 @@ hscCheckSafe' m l = do
         hsc_env <- getHscEnv
         hsc_eps <- liftIO $ hscEPS hsc_env
         let pkgIfaceT = eps_PIT hsc_eps
-            homePkgT  = hsc_HPT hsc_env
+            homePkgT  = hsc_HUG hsc_env
             iface     = lookupIfaceByModule homePkgT pkgIfaceT m
         -- the 'lookupIfaceByModule' method will always fail when calling from GHCi
         -- as the compiler hasn't filled in the various module tables

@@ -336,6 +336,9 @@ jsonLogAction logflags msg_class srcSpan msg
                        , ( "messageClass", json msg_class )
                        ]
 
+--defaultParLogAction logflags msg_class srcSpan msg
+
+
 defaultLogAction :: LogAction
 defaultLogAction logflags msg_class srcSpan msg
   | log_dopt Opt_D_dump_json logflags = jsonLogAction logflags msg_class srcSpan msg

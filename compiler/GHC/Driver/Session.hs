@@ -511,6 +511,10 @@ data DynFlags = DynFlags {
   homeUnitInstanceOf_     :: Maybe UnitId,           -- ^ Id of the unit to instantiate
   homeUnitInstantiations_ :: [(ModuleName, Module)], -- ^ Module instantiations
 
+  workingDirectory      :: Maybe FilePath,
+  thisPackageName       :: Maybe String, -- ^ What the package is called, use with multiple home units
+  hiddenModules         :: [ModuleName],
+
   -- ways
   targetWays_           :: Ways,         -- ^ Target way flags from the command line
 
@@ -1127,6 +1131,10 @@ defaultDynFlags mySettings llvmConfig =
         homeUnitId_             = mainUnitId,
         homeUnitInstanceOf_     = Nothing,
         homeUnitInstantiations_ = [],
+
+        workingDirectory        = Nothing,
+        thisPackageName         = Nothing,
+        hiddenModules           = [],
 
         objectDir               = Nothing,
         dylibInstallName        = Nothing,
@@ -2898,6 +2906,11 @@ package_flags_deps = [
   , make_ord_flag defGhcFlag "package-name"       (HasArg $ \name ->
                                       upd (setUnitId name))
   , make_ord_flag defGhcFlag "this-unit-id"       (hasArg setUnitId)
+  -- TODO: MP: Are these in the right place?
+  -- MP: defGhcFlag is probably wrong
+  , make_ord_flag defGhcFlag "working-dir"       (hasArg setWorkingDirectory)
+  , make_ord_flag defGhcFlag "this-package-name"  (hasArg setPackageName)
+  , make_ord_flag defGhcFlag "hidden-module"      (HasArg addHiddenModule)
   , make_ord_flag defFlag "package"               (HasArg exposePackage)
   , make_ord_flag defFlag "plugin-package-id"     (HasArg exposePluginPackageId)
   , make_ord_flag defFlag "plugin-package"        (HasArg exposePluginPackage)
@@ -4210,6 +4223,17 @@ parseUnitArg =
 
 setUnitId :: String -> DynFlags -> DynFlags
 setUnitId p d = d { homeUnitId_ = stringToUnitId p }
+
+setWorkingDirectory :: String -> DynFlags -> DynFlags
+setWorkingDirectory p d = d { workingDirectory =  Just p }
+
+setPackageName :: String -> DynFlags -> DynFlags
+setPackageName p d = d { thisPackageName =  Just p }
+
+addHiddenModule :: String -> DynP ()
+addHiddenModule p =
+  upd (\s -> s{ hiddenModules  = mkModuleName p : hiddenModules s })
+
 
 -- If we're linking a binary, then only backends that produce object
 -- code are allowed (requests for other target types are ignored).

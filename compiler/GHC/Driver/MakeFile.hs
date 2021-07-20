@@ -16,7 +16,6 @@ where
 import GHC.Prelude
 
 import qualified GHC
-import GHC.Driver.Config.Finder
 import GHC.Driver.Monad
 import GHC.Driver.Session
 import GHC.Driver.Ppr
@@ -215,7 +214,7 @@ processDeps dflags _ _ _ _ (CyclicSCC nodes)
     throwGhcExceptionIO $ ProgramError $
       showSDoc dflags $ GHC.cyclicModuleErr nodes
 
-processDeps dflags _ _ _ _ (AcyclicSCC (InstantiationNode node))
+processDeps dflags _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
   =     -- There shouldn't be any backpack instantiations; report them as well
     throwGhcExceptionIO $ ProgramError $
       showSDoc dflags $
@@ -290,14 +289,9 @@ findDependency  :: HscEnv
                 -> Bool                 -- Record dependency on package modules
                 -> IO (Maybe FilePath)  -- Interface file
 findDependency hsc_env srcloc pkg imp is_boot include_pkg_deps = do
-  let fc        = hsc_FC hsc_env
-  let home_unit = hsc_home_unit hsc_env
-  let units     = hsc_units hsc_env
-  let dflags    = hsc_dflags hsc_env
-  let fopts     = initFinderOpts dflags
   -- Find the module; this will be fast because
   -- we've done it once during downsweep
-  r <- findImportedModule fc fopts units home_unit imp pkg
+  r <- findImportedModule hsc_env imp pkg
   case r of
     Found loc _
         -- Home package: just depend on the .hi or hi-boot file

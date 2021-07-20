@@ -29,7 +29,6 @@ import GHC.Driver.Pipeline  ( oneShot, compileFile )
 import GHC.Driver.MakeFile  ( doMkDependHS )
 import GHC.Driver.Backpack  ( doBackpack )
 import GHC.Driver.Plugins
-import GHC.Driver.Config.Finder (initFinderOpts)
 import GHC.Driver.Config.Logger (initLogFlags)
 import GHC.Driver.Config.Diagnostic
 
@@ -43,10 +42,13 @@ import GHCi.UI              ( interactiveUI, ghciWelcomeMsg, defaultGhciSettings
 
 import GHC.Runtime.Loader   ( loadFrontendPlugin )
 
+import GHC.Unit (UnitId)
+import GHC.Unit.Home.ModInfo (emptyHomePackageTable)
 import GHC.Unit.Module ( ModuleName, mkModuleName )
 import GHC.Unit.Module.ModIface
 import GHC.Unit.State  ( pprUnits, pprUnitsSimple )
 import GHC.Unit.Finder ( findImportedModule, FindResult(..) )
+import qualified GHC.Unit.State as State
 import GHC.Unit.Types  ( IsBootInterface(..) )
 
 import GHC.Types.Basic     ( failed )
@@ -85,8 +87,12 @@ import Control.Monad.Trans.Except (throwE, runExceptT)
 import Data.Char
 import Data.List ( isPrefixOf, partition, intercalate )
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 import Data.Maybe
 import Prelude
+import GHC.ResponseFile (expandResponse)
+import GHC.Unit.Env
+import GHC.Utils.Trace
 
 -----------------------------------------------------------------------------
 -- ToDo:
@@ -172,6 +178,7 @@ main' postLoadMode dflags0 args flagWarnings = do
                DoBackpack      -> (CompManager, dflt_backend, LinkBinary)
                DoMkDependHS    -> (MkDepend,    dflt_backend, LinkBinary)
                DoAbiHash       -> (OneShot,     dflt_backend, LinkBinary)
+               DoMulti _       -> (CompManager, dflt_backend, LinkBinary)
                _               -> (OneShot,     dflt_backend, LinkBinary)
 
   let dflags1 = dflags0{ ghcMode   = mode,
@@ -235,6 +242,7 @@ main' postLoadMode dflags0 args flagWarnings = do
   liftIO $ showBanner postLoadMode dflags4
 
   let (dflags5, srcs, objs) = parseTargetFiles dflags4 (map unLoc fileish_args)
+  let _srcs' = map (uncurry (,Nothing,)) srcs
 
   -- we've finished manipulating the DynFlags, update the session
   _ <- GHC.setSessionDynFlags dflags5
@@ -272,6 +280,7 @@ main' postLoadMode dflags0 args flagWarnings = do
        ShowPackages           -> liftIO $ showUnits hsc_env
        DoFrontend f           -> doFrontend f srcs
        DoBackpack             -> doBackpack (map fst srcs)
+       DoMulti fs             -> doMulti fs
 
   liftIO $ dumpFinalStats logger
 
@@ -451,6 +460,8 @@ data PostLoadMode
   | DoEval [String]         -- ghc -e foo -e bar => DoEval ["bar", "foo"]
   | DoRun                   -- ghc --run
   | DoAbiHash               -- ghc --abi-hash
+  | DoMulti [String]        -- ghc -unit @args1.txt -unit @args2.txt
+                            --   => DoMulti ["args1.txt", "args2.txt"]
   | ShowPackages            -- ghc --show-packages
   | DoFrontend ModuleName   -- ghc --frontend Plugin.Module
 
@@ -471,6 +482,9 @@ stopBeforeMode phase = mkPostLoadMode (StopBefore phase)
 
 doEvalMode :: String -> Mode
 doEvalMode str = mkPostLoadMode (DoEval [str])
+
+doMultiMode :: String -> Mode
+doMultiMode str = mkPostLoadMode (DoMulti [str])
 
 doFrontendMode :: String -> Mode
 doFrontendMode str = mkPostLoadMode (DoFrontend (mkModuleName str))
@@ -610,6 +624,7 @@ mode_flags =
   , defFlag "S"            (PassFlag (setMode (stopBeforeMode StopAs)))
   , defFlag "-run"         (PassFlag (setMode doRunMode))
   , defFlag "-make"        (PassFlag (setMode doMakeMode))
+  , defFlag "unit"         (SepArg   (\s -> setMode (doMultiMode s) "-unit"))
   , defFlag "-backpack"    (PassFlag (setMode doBackpackMode))
   , defFlag "-interactive" (PassFlag (setMode doInteractiveMode))
   , defFlag "-abi-hash"    (PassFlag (setMode doAbiHashMode))
@@ -647,6 +662,12 @@ setMode newMode newFlag = liftEwM $ do
                         isDoInteractiveMode oldMode ->
                             ((newMode, newFlag), [])
 
+                    -- Accumulate flags like "-unit @args1.txt -unit @args2.txt"
+                    (Right (Right (DoMulti esOld)),
+                     Right (Right (DoMulti [eNew]))) ->
+                        ((Right (Right (DoMulti (eNew : esOld))), oldFlag),
+                         errs)
+                    _
                     -- Otherwise, --help/--version/--numeric-version always win
                       | isDominantFlag oldMode -> ((oldMode, oldFlag), [])
                       | isDominantFlag newMode -> ((newMode, newFlag), [])
@@ -715,6 +736,91 @@ doMake srcs  = do
     when (failed ok_flag) (liftIO $ exitWith (ExitFailure 1))
     return ()
 
+doMulti :: [String] -> Ghc ()
+doMulti unitArgsFiles  = do
+  hsc_env <- GHC.getSession
+  let logger = hsc_logger hsc_env
+  initial_dflags <- GHC.getSessionDynFlags
+
+  dynFlagsAndSrcs <- forM unitArgsFiles $ \f -> do
+    args <- liftIO $ expandResponse [f]
+    (dflags2, fileish_args, warns) <- parseDynamicFlagsCmdLine initial_dflags (map (mkGeneralLocated f) args)
+    handleSourceError (\e -> do
+       GHC.printException e
+       liftIO $ exitWith (ExitFailure 1)) $ do
+         liftIO $ handleFlagWarnings logger (initDiagOpts dflags2) warns
+
+    let (dflags3, srcs, objs) = parseTargetFiles dflags2 (map unLoc fileish_args)
+    liftIO $ checkOptions (DoMulti unitArgsFiles) dflags3 srcs objs
+
+    pure (dflags3, srcs)
+
+  let
+    unitDflags = map fst dynFlagsAndSrcs
+    srcs = concatMap (\(dflags, lsrcs) -> map (uncurry (,homeUnitId_ dflags,)) lsrcs) dynFlagsAndSrcs
+    (hs_srcs, non_hs_srcs) = partition (\(file, _uid, phase) -> isHaskellishTarget (file, phase)) srcs
+
+  let (initial_home_graph, mainUnitId) = createUnitEnvFromFlags unitDflags
+      home_units = unitEnv_keys initial_home_graph
+
+  pprTraceM "home_units" (ppr home_units)
+  home_unit_graph <- forM initial_home_graph $ \homeUnitEnv -> do
+    let cached_unit_dbs = homeUnitEnv_unit_dbs homeUnitEnv
+        hue_flags = homeUnitEnv_dflags homeUnitEnv
+        dflags = homeUnitEnv_dflags homeUnitEnv
+    pprTraceM "init_units" (ppr initial_home_graph)
+    (dbs,unit_state,home_unit,mconstants) <- liftIO $ State.initUnits logger hue_flags cached_unit_dbs home_units
+
+    updated_dflags <- liftIO $ updatePlatformConstants dflags mconstants
+    pure $ HomeUnitEnv
+      { homeUnitEnv_units = unit_state
+      , homeUnitEnv_unit_dbs = Just dbs
+      , homeUnitEnv_dflags = updated_dflags
+      , homeUnitEnv_hpt = emptyHomePackageTable
+      , homeUnitEnv_home_unit = Just home_unit
+      }
+  let dflags = homeUnitEnv_dflags $ unitEnv_lookup mainUnitId home_unit_graph
+  unitEnv <- assertUnitEnvInvariant <$> (liftIO $ initUnitEnv mainUnitId home_unit_graph (ghcNameVersion dflags) (targetPlatform dflags))
+  let final_hsc_env = hsc_env { hsc_unit_env = unitEnv }
+
+  GHC.setSession final_hsc_env
+
+  -- if we have no haskell sources from which to do a dependency
+  -- analysis, then just do one-shot compilation and/or linking.
+  -- This means that "ghc Foo.o Bar.o -o baz" links the program as
+  -- we expect.
+  if (null hs_srcs)
+      then do
+        liftIO $ hPutStrLn stderr $ "Multi Mode can not be used for one-shot mode."
+        liftIO $ exitWith (ExitFailure 1)
+      else do
+
+  -- TODO: @fendor: this is incorrect
+  o_files <- liftIO $ mapMaybeM
+                (\(src, uid, mphase) ->
+                  compileFile (hscSetActiveHomeUnit (ue_unitHomeUnit uid unitEnv) final_hsc_env) NoStop (src, mphase)
+                )
+                non_hs_srcs
+
+  let dflags' = dflags { ldInputs = map (FileOption "") o_files
+                                    ++ ldInputs dflags }
+  _ <- GHC.setSessionDynFlags dflags'
+
+  targets <- mapM (\(src, uid, phase) -> GHC.guessTarget src (Just uid) phase) hs_srcs
+  GHC.setTargets targets
+  ok_flag <- GHC.load LoadAllTargets
+
+  when (failed ok_flag) (liftIO $ exitWith (ExitFailure 1))
+  return ()
+
+createUnitEnvFromFlags :: [DynFlags] -> (HomeUnitGraph, UnitId)
+createUnitEnvFromFlags unitDflags =
+  let
+    newInternalUnitEnv dflags = mkHomeUnitEnv dflags emptyHomePackageTable Nothing
+    unitEnvList = map (\dflags -> (homeUnitId_ dflags, newInternalUnitEnv dflags)) unitDflags
+    activeUnit = fst $ head unitEnvList
+  in
+    (unitEnv_new (Map.fromList unitEnvList), activeUnit)
 
 -- ---------------------------------------------------------------------------
 -- Various banners and verbosity output.
@@ -871,17 +977,13 @@ abiHash :: [String] -- ^ List of module names
         -> Ghc ()
 abiHash strs = do
   hsc_env <- getSession
-  let fc        = hsc_FC hsc_env
-  let home_unit = hsc_home_unit hsc_env
-  let units     = hsc_units hsc_env
   let dflags    = hsc_dflags hsc_env
-  let fopts     = initFinderOpts dflags
 
   liftIO $ do
 
   let find_it str = do
          let modname = mkModuleName str
-         r <- findImportedModule fc fopts units home_unit modname Nothing
+         r <- findImportedModule hsc_env modname Nothing
          case r of
            Found _ m -> return m
            _error    -> throwGhcException $ CmdLineError $ showSDoc dflags $

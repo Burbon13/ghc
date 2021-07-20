@@ -17,7 +17,7 @@ import GHC.Platform.Profile
 import GHC.Platform.Ways
 import GHC.Utils.Panic.Plain
 import GHC.Driver.Session
-import GHC.Driver.Env.Types
+import GHC.Driver.Env
 import GHC.Driver.Errors.Types
 import GHC.Data.Maybe
 import GHC.Prelude
@@ -25,6 +25,9 @@ import GHC.Unit
 import GHC.Unit.Env
 import GHC.Unit.Finder.Types
 import GHC.Utils.Outputable as Outputable
+import GHC.Stack
+import GHC.Utils.Trace
+import GHC.Utils.Panic
 
 
 badIfaceFile :: String -> SDoc -> SDoc
@@ -142,8 +145,8 @@ mayShowLocations dflags files
     | otherwise =
           hang (text "Locations searched:") 2 $ vcat (map text files)
 
-cannotFindModule :: HscEnv -> ModuleName -> FindResult -> SDoc
-cannotFindModule hsc_env = cannotFindModule'
+cannotFindModule :: HasCallStack => HscEnv -> ModuleName -> FindResult -> SDoc
+cannotFindModule hsc_env = pprTrace "cannotFind" callStackDoc $ cannotFindModule'
     (hsc_dflags   hsc_env)
     (hsc_unit_env hsc_env)
     (targetProfile (hsc_dflags hsc_env))
@@ -212,7 +215,7 @@ cantFindErr using_cabal cannot_find _ unit_env profile tried_these mod_name find
   = cannot_find <+> quotes (ppr mod_name)
     $$ more_info
   where
-    mhome_unit = ue_home_unit unit_env
+    mhome_unit = ue_homeUnit unit_env
     more_info
       = case find_result of
             NoPackage pkg

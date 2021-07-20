@@ -96,6 +96,7 @@ module GHC.Utils.Misc (
 
         -- * IO-ish utilities
         doesDirNameExist,
+        maybeWithCurrentDirectory,
         getModificationUTCTime,
         modificationTimeIfExists,
         fileHashIfExists,
@@ -140,7 +141,7 @@ import Control.Applicative ( liftA2 )
 import Control.Monad    ( liftM, guard )
 import Control.Monad.IO.Class ( MonadIO, liftIO )
 import System.IO.Error as IO ( isDoesNotExistError )
-import System.Directory ( doesDirectoryExist, getModificationTime, renameFile )
+import System.Directory ( doesDirectoryExist, getModificationTime, renameFile, withCurrentDirectory )
 import System.FilePath
 
 import Data.Char        ( isUpper, isAlphaNum, isSpace, chr, ord, isDigit, toUpper
@@ -1248,6 +1249,11 @@ readHexSignificandExponentPair__ _ = Nothing
 --
 doesDirNameExist :: FilePath -> IO Bool
 doesDirNameExist fpath = doesDirectoryExist (takeDirectory fpath)
+
+-- Change directory, if there's a direction to change into.
+maybeWithCurrentDirectory :: Maybe FilePath -> IO a -> IO a
+maybeWithCurrentDirectory Nothing = id
+maybeWithCurrentDirectory (Just fp) = withCurrentDirectory fp
 
 -----------------------------------------------------------------------------
 -- Backwards compatibility definition of getModificationTime

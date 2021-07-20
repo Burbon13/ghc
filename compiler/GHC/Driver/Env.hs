@@ -5,11 +5,20 @@ module GHC.Driver.Env
    , HscEnv (..)
    , hscUpdateFlags
    , hscSetFlags
+   , hsc_dflags
    , hsc_home_unit
    , hsc_units
    , hsc_HPT
-   , hscUpdateHPT
+   , hsc_HUG
+   , hsc_all_home_unit_ids
+   , hscUpdateUnitEnv
+   , hscUpdateUnitEnvM
    , hscUpdateLoggerFlags
+   , hscUpdateHUG
+   , hscUpdateHPT
+   , hscSetActiveHomeUnit
+   , hscSetActiveUnitId
+   , hscActiveUnitId
    , runHsc
    , runHsc'
    , mkInteractiveHscEnv
@@ -77,6 +86,7 @@ import GHC.Utils.Trace
 import Data.IORef
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.Foldable (asum)
 
 runHsc :: HscEnv -> Hsc a -> IO a
 runHsc hsc_env (Hsc hsc) = do
@@ -104,14 +114,23 @@ runInteractiveHsc hsc_env = runHsc (mkInteractiveHscEnv hsc_env)
 hsc_home_unit :: HscEnv -> HomeUnit
 hsc_home_unit = unsafeGetHomeUnit . hsc_unit_env
 
-hsc_units :: HscEnv -> UnitState
+hsc_units :: HasCallStack => HscEnv -> UnitState
 hsc_units = ue_units . hsc_unit_env
 
 hsc_HPT :: HscEnv -> HomePackageTable
 hsc_HPT = ue_hpt . hsc_unit_env
 
+hsc_HUG :: HscEnv -> HomeUnitGraph
+hsc_HUG = ue_home_unit_graph . hsc_unit_env
+
+hsc_all_home_unit_ids :: HscEnv -> [UnitId]
+hsc_all_home_unit_ids = unitEnv_keys . hsc_HUG
+
 hscUpdateHPT :: (HomePackageTable -> HomePackageTable) -> HscEnv -> HscEnv
 hscUpdateHPT f hsc_env = hsc_env { hsc_unit_env = updateHpt f (hsc_unit_env hsc_env) }
+
+hscUpdateHUG :: (HomeUnitGraph -> HomeUnitGraph) -> HscEnv -> HscEnv
+hscUpdateHUG f hsc_env = hsc_env { hsc_unit_env = updateHug f (hsc_unit_env hsc_env) }
 
 {-
 
@@ -227,7 +246,8 @@ hptAnns hsc_env (Just deps) = hptSomeThingsBelowUs (md_anns . hm_details) False 
 hptAnns hsc_env Nothing = hptAllThings (md_anns . hm_details) hsc_env
 
 hptAllThings :: (HomeModInfo -> [a]) -> HscEnv -> [a]
-hptAllThings extract hsc_env = concatMap extract (eltsHpt (hsc_HPT hsc_env))
+hptAllThings extract hsc_env = concatMap (concatMap extract . eltsHpt . homeUnitEnv_hpt . snd)
+                                (hugElts (hsc_HUG hsc_env))
 
 -- | This function returns all the modules belonging to the home-unit that can
 -- be reached by following the given dependencies. Additionally, if both the
@@ -236,14 +256,15 @@ hptAllThings extract hsc_env = concatMap extract (eltsHpt (hsc_HPT hsc_env))
 hptModulesBelow :: HscEnv -> Set ModuleNameWithIsBoot -> Set ModuleNameWithIsBoot
 hptModulesBelow hsc_env mn = filtered_mods $ dep_mods mn Set.empty
   where
-    !hpt = hsc_HPT hsc_env
+    !hpts = map (homeUnitEnv_hpt . snd) (hugElts (hsc_HUG hsc_env))
 
+    lkup mod = asum $ map (flip lookupHpt mod) hpts
     -- get all the dependent modules without filtering boot/non-boot
     dep_mods !deps !seen -- invariant: intersection of deps and seen is null
       | Set.null deps = seen
       | otherwise     = dep_mods deps' seen'
           where
-            get_deps d@(GWIB mod _is_boot) (home_deps,all_deps) = case lookupHpt hpt mod of
+            get_deps d@(GWIB mod _is_boot) (home_deps,all_deps) = case lkup mod of
               Nothing  -> (home_deps,all_deps) -- not a home-module
               Just hmi -> let
                             !home_deps' = Set.insert d home_deps
@@ -281,7 +302,7 @@ hptSomeThingsBelowUs extract include_hi_boot hsc_env deps
   | isOneShot (ghcMode (hsc_dflags hsc_env)) = []
 
   | otherwise
-  = let hpt = hsc_HPT hsc_env
+  = let hug = hsc_HUG hsc_env
     in
     [ thing
     |   -- Find each non-hi-boot module below me
@@ -295,7 +316,7 @@ hptSomeThingsBelowUs extract include_hi_boot hsc_env deps
     , mod /= moduleName gHC_PRIM
 
         -- Look it up in the HPT
-    , let things = case lookupHpt hpt mod of
+    , let things = case lookupHug hug mod of
                     Just info -> extract info
                     Nothing -> pprTrace "WARNING in hptSomeThingsBelowUs" msg []
           msg = vcat [text "missing module" <+> ppr mod,
@@ -332,7 +353,7 @@ lookupType :: HscEnv -> Name -> IO (Maybe TyThing)
 lookupType hsc_env name = do
    eps <- liftIO $ hscEPS hsc_env
    let pte = eps_PTE eps
-       hpt = hsc_HPT hsc_env
+       hpt = hsc_HUG hsc_env
 
        mod = assertPpr (isExternalName name) (ppr name) $
              if isHoleName name
@@ -342,7 +363,7 @@ lookupType hsc_env name = do
        !ty = if isOneShot (ghcMode (hsc_dflags hsc_env))
                -- in one-shot, we don't use the HPT
                then lookupNameEnv pte name
-               else case lookupHptByModule hpt mod of
+               else case lookupHugByModule mod hpt of
                 Just hm -> lookupNameEnv (md_types (hm_details hm)) name
                 Nothing -> lookupNameEnv pte name
    pure ty
@@ -350,12 +371,12 @@ lookupType hsc_env name = do
 -- | Find the 'ModIface' for a 'Module', searching in both the loaded home
 -- and external package module information
 lookupIfaceByModule
-        :: HomePackageTable
+        :: HomeUnitGraph
         -> PackageIfaceTable
         -> Module
         -> Maybe ModIface
-lookupIfaceByModule hpt pit mod
-  = case lookupHptByModule hpt mod of
+lookupIfaceByModule hug pit mod
+  = case lookupHugByModule mod hug of
        Just hm -> Just (hm_iface hm)
        Nothing -> lookupModuleEnv pit mod
    -- If the module does come from the home package, why do we look in the PIT as well?
@@ -391,4 +412,28 @@ hscSetFlags :: DynFlags -> HscEnv -> HscEnv
 hscSetFlags dflags h =
   -- update LogFlags from the new DynFlags
   hscUpdateLoggerFlags
-  $ h { hsc_dflags = dflags }
+  $ h { hsc_unit_env = ue_setFlags dflags (hsc_unit_env h)
+      }
+
+hsc_dflags :: HasCallStack => HscEnv -> DynFlags
+hsc_dflags = ue_dflags . hsc_unit_env
+
+hscUpdateUnitEnv :: (UnitEnv -> UnitEnv) -> HscEnv -> HscEnv
+hscUpdateUnitEnv f h = h
+  { hsc_unit_env = f (hsc_unit_env h) }
+
+hscUpdateUnitEnvM :: Monad m => (UnitEnv -> m UnitEnv) -> HscEnv -> m HscEnv
+hscUpdateUnitEnvM f h = do
+  newUnitEnv <- f (hsc_unit_env h)
+  pure h { hsc_unit_env = newUnitEnv }
+
+hscSetActiveHomeUnit :: HasCallStack => HomeUnit -> HscEnv -> HscEnv
+hscSetActiveHomeUnit home_unit e = e
+  { hsc_unit_env = ue_setActiveUnit (homeUnitId home_unit) (hsc_unit_env e) }
+
+hscSetActiveUnitId :: HasCallStack => UnitId -> HscEnv -> HscEnv
+hscSetActiveUnitId home_unit e = e
+  { hsc_unit_env = ue_setActiveUnit home_unit (hsc_unit_env e) }
+
+hscActiveUnitId :: HscEnv -> UnitId
+hscActiveUnitId e = ue_currentUnit (hsc_unit_env e)

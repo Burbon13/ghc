@@ -1,0 +1,6 @@
+[1 of 2] Compiling Main             ( c/C.hs, c/C.o )
+[2 of 2] Compiling Main             ( d/C.hs, d/C.o )
+Linking ./c/C ...
+Linking ./d/D ...
+unit C compiled successfully
+unit D compiled successfully

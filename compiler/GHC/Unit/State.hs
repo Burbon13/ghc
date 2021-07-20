@@ -344,10 +344,11 @@ data UnitConfig = UnitConfig
    , unitConfigFlagsIgnored :: [IgnorePackageFlag] -- ^ Ignored units
    , unitConfigFlagsTrusted :: [TrustFlag]         -- ^ Trusted units
    , unitConfigFlagsPlugins :: [PackageFlag]       -- ^ Plugins exposed units
+   , unitConfigHomeUnits    :: [UnitId]
    }
 
-initUnitConfig :: DynFlags -> Maybe [UnitDatabase UnitId] -> UnitConfig
-initUnitConfig dflags cached_dbs =
+initUnitConfig :: DynFlags -> Maybe [UnitDatabase UnitId] -> [UnitId] -> UnitConfig
+initUnitConfig dflags cached_dbs home_units =
    let !hu_id             = homeUnitId_ dflags
        !hu_instanceof     = homeUnitInstanceOf_ dflags
        !hu_instantiations = homeUnitInstantiations_ dflags
@@ -386,6 +387,7 @@ initUnitConfig dflags cached_dbs =
       , unitConfigFlagsIgnored = ignorePackageFlags dflags
       , unitConfigFlagsTrusted = trustFlags dflags
       , unitConfigFlagsPlugins = pluginPackageFlags dflags
+      , unitConfigHomeUnits    = home_units
 
       }
 
@@ -431,6 +433,8 @@ data UnitState = UnitState {
   -- We'll use this to generate version macros.
   explicitUnits      :: [Unit],
 
+  homeUnitDepends    :: [UnitId],
+
   -- | This is a full map from 'ModuleName' to all modules which may possibly
   -- be providing it.  These providers may be hidden (but we'll still want
   -- to report them in error messages), or it may be an ambiguous import.
@@ -464,6 +468,7 @@ emptyUnitState = UnitState {
     unwireMap = Map.empty,
     preloadUnits = [],
     explicitUnits = [],
+    homeUnitDepends = [],
     moduleNameProvidersMap = Map.empty,
     pluginModuleNameProvidersMap = Map.empty,
     requirementContext = Map.empty,
@@ -577,14 +582,14 @@ listUnitInfo state = Map.elems (unitInfoMap state)
 -- 'initUnits' can be called again subsequently after updating the
 -- 'packageFlags' field of the 'DynFlags', and it will update the
 -- 'unitState' in 'DynFlags'.
-initUnits :: Logger -> DynFlags -> Maybe [UnitDatabase UnitId] -> IO ([UnitDatabase UnitId], UnitState, HomeUnit, Maybe PlatformConstants)
-initUnits logger dflags cached_dbs = do
+initUnits :: Logger -> DynFlags -> Maybe [UnitDatabase UnitId] -> [UnitId] -> IO ([UnitDatabase UnitId], UnitState, HomeUnit, Maybe PlatformConstants)
+initUnits logger dflags cached_dbs home_units = do
 
   let forceUnitInfoMap (state, _) = unitInfoMap state `seq` ()
 
   (unit_state,dbs) <- withTiming logger (text "initializing unit database")
                    forceUnitInfoMap
-                 $ mkUnitState logger (initUnitConfig dflags cached_dbs)
+                 $ mkUnitState logger (initUnitConfig dflags cached_dbs home_units)
 
   putDumpFileMaybe logger Opt_D_dump_mod_map "Module Map"
     FormatText (updSDocContext (\ctx -> ctx {sdocLineLength = 200})
@@ -1470,9 +1475,12 @@ mkUnitState logger cfg = do
   -- This, and the other reverse's that you will see, are due to the fact that
   -- packageFlags, pluginPackageFlags, etc. are all specified in *reverse* order
   -- than they are on the command line.
-  let other_flags = reverse (unitConfigFlagsExposed cfg)
+  let raw_other_flags = reverse (unitConfigFlagsExposed cfg)
+      (hpt_flags, other_flags) = partition (selectHptFlag (unitConfigHomeUnits cfg)) raw_other_flags
   debugTraceMsg logger 2 $
       text "package flags" <+> ppr other_flags
+
+  let home_unit_deps = selectHomeUnits (unitConfigHomeUnits cfg) hpt_flags
 
   -- Merge databases together, without checking validity
   (pkg_map1, prec_map) <- mergeDatabases logger dbs
@@ -1633,6 +1641,7 @@ mkUnitState logger cfg = do
   let !state = UnitState
          { preloadUnits                 = dep_preload
          , explicitUnits                = explicit_pkgs
+         , homeUnitDepends              = home_unit_deps
          , unitInfoMap                  = pkg_db
          , preloadClosure               = emptyUniqSet
          , moduleNameProvidersMap       = mod_map
@@ -1645,8 +1654,22 @@ mkUnitState logger cfg = do
          }
   return (state, raw_dbs)
 
+selectHptFlag :: [UnitId] -> PackageFlag -> Bool
+selectHptFlag home_units (ExposePackage _ (UnitIdArg uid) _) | toUnitId uid `elem` home_units = True
+selectHptFlag _ _ = False
+
+selectHomeUnits :: [UnitId] -> [PackageFlag] -> [UnitId]
+selectHomeUnits home_units flags = Set.toList (foldl' go Set.empty flags)
+  where
+    go :: Set UnitId -> PackageFlag -> Set UnitId
+    go cur (ExposePackage _ (UnitIdArg uid) _) | toUnitId uid `elem` home_units = Set.insert (toUnitId uid) cur
+    -- TODO MP:
+    go cur _ = cur
+
+
 -- | Given a wired-in 'Unit', "unwire" it into the 'Unit'
 -- that it was recorded as in the package database.
+
 unwireUnit :: UnitState -> Unit -> Unit
 unwireUnit state uid@(RealUnit (Definite def_uid)) =
     maybe uid (RealUnit . Definite) (Map.lookup def_uid (unwireMap state))

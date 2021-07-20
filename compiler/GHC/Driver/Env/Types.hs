@@ -6,8 +6,8 @@ module GHC.Driver.Env.Types
   ) where
 
 import GHC.Driver.Errors.Types ( GhcMessage )
-import {-# SOURCE #-} GHC.Driver.Hooks
-import GHC.Driver.Session ( DynFlags, ContainsDynFlags(..), HasDynFlags(..) )
+import {-# SOURCE #-} GHC.Driver.Hooks ( Hooks )
+import GHC.Driver.Session ( ContainsDynFlags(..), HasDynFlags(..) )
 import GHC.Prelude
 import GHC.Runtime.Context
 import GHC.Runtime.Interpreter.Types ( Interp )
@@ -34,10 +34,10 @@ newtype Hsc a = Hsc (HscEnv -> Messages GhcMessage -> IO (a, Messages GhcMessage
       via ReaderT HscEnv (StateT (Messages GhcMessage) IO)
 
 instance HasDynFlags Hsc where
-    getDynFlags = Hsc $ \e w -> return (hsc_dflags e, w)
+    getDynFlags = Hsc $ \e w -> return (ue_dflags $ hsc_unit_env e, w)
 
 instance ContainsDynFlags HscEnv where
-    extractDynFlags h = hsc_dflags h
+    extractDynFlags h = ue_dflags $ hsc_unit_env h
 
 instance HasLogger Hsc where
     getLogger = Hsc $ \e w -> return (hsc_logger e, w)
@@ -57,9 +57,6 @@ instance HasLogger Hsc where
 -- a single module.
 data HscEnv
   = HscEnv {
-        hsc_dflags :: DynFlags,
-                -- ^ The dynamic flag settings
-
         hsc_targets :: [Target],
                 -- ^ The targets (or roots) of the current session
 

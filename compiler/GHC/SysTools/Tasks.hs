@@ -32,6 +32,7 @@ import GHC.Utils.Constants (isWindowsHost)
 import Data.List (tails, isPrefixOf)
 import System.IO
 import System.Process
+import System.FilePath
 
 {-
 ************************************************************************
@@ -48,10 +49,21 @@ runUnlit logger dflags args = traceToolCommand logger "unlit" $ do
   runSomething logger "Literate pre-processor" prog
                (map Option opts ++ args)
 
+-- | Prepend the working directory to the search path.
+augmentImports :: FilePath -> [FilePath] -> [FilePath]
+augmentImports _work_dir [] = []
+augmentImports _work_dir [x] = [x]
+augmentImports work_dir ("-include":fp:fps) | isAbsolute fp = "-include" : fp : augmentImports work_dir fps
+                                 | otherwise     = "-include" : (work_dir </> fp) : augmentImports work_dir fps
+augmentImports work_dir (fp1: fp2: fps) = fp1 : augmentImports work_dir (fp2:fps)
+
 runCpp :: Logger -> DynFlags -> [Option] -> IO ()
 runCpp logger dflags args = traceToolCommand logger "cpp" $ do
+  let opts = getOpts dflags opt_P
+      modified_imports | Just work_dir <- workingDirectory dflags = augmentImports work_dir opts
+                       | otherwise = opts
   let (p,args0) = pgm_P dflags
-      args1 = map Option (getOpts dflags opt_P)
+      args1 = map Option modified_imports
       args2 = [Option "-Werror" | gopt Opt_WarnIsError dflags]
                 ++ [Option "-Wundef" | wopt Opt_WarnCPPUndef dflags]
   mb_env <- getGccEnv args2

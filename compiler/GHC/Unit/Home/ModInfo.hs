@@ -79,6 +79,7 @@ emptyHomePackageTable  = emptyUDFM
 lookupHpt :: HomePackageTable -> ModuleName -> Maybe HomeModInfo
 lookupHpt = lookupUDFM
 
+
 lookupHptDirectly :: HomePackageTable -> Unique -> Maybe HomeModInfo
 lookupHptDirectly = lookupUDFM_Directly
 

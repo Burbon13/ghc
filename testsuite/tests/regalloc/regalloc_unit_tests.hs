@@ -125,7 +125,10 @@ compileCmmForRegAllocStats ::
         , Maybe [Linear.RegAllocStats])]
 compileCmmForRegAllocStats logger dflags cmmFile ncgImplF us = do
     let ncgImpl = ncgImplF (initNCGConfig dflags thisMod)
-    hscEnv <- newHscEnv dflags
+    let home_unit_graph = unitEnv_singleton
+            (homeUnitId_ dflags)
+            (mkHomeUnitEnv dflags emptyHomePackageTable Nothing)
+    hscEnv <- newHscEnv home_unit_graph
 
     -- parse the cmm file and output any warnings or errors
     let fake_mod = mkHomeModule (hsc_home_unit hscEnv) (mkModuleName "fake")

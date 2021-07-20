@@ -526,7 +526,7 @@ checkMergedSignatures hsc_env mod_summary iface = do
 checkDependencies :: HscEnv -> ModSummary -> ModIface -> IfG RecompileRequired
 checkDependencies hsc_env summary iface
  = do
-    res_normal <- classify_import (findImportedModule fc fopts units home_unit) (ms_textual_imps summary ++ ms_srcimps summary)
+    res_normal <- classify_import (findImportedModule hsc_env) (ms_textual_imps summary ++ ms_srcimps summary)
     res_plugin <- classify_import (\mod _ -> findPluginModule fc fopts units home_unit mod) (ms_plugin_imps summary)
     case sequence (res_normal ++ res_plugin ++ [Right (fake_ghc_prim_import)| ms_ghc_prim_import summary]) of
       Left recomp -> return recomp
@@ -549,6 +549,7 @@ checkDependencies hsc_env summary iface
    logger        = hsc_logger hsc_env
    fc            = hsc_FC hsc_env
    home_unit     = hsc_home_unit hsc_env
+   all_home_units = hsc_all_home_unit_ids hsc_env
    units         = hsc_units hsc_env
    prev_dep_mods = map gwib_mod $ Set.toAscList $ dep_direct_mods (mi_deps iface)
    prev_dep_pkgs = Set.toAscList (Set.union (dep_direct_pkgs (mi_deps iface))
@@ -566,7 +567,7 @@ checkDependencies hsc_env summary iface
 
 
    classify _ (Found _ mod)
-    | isHomeUnit home_unit (moduleUnit mod) = Right (Left (moduleName mod))
+    | (toUnitId $ moduleUnit mod) `elem` all_home_units = Right (Left (moduleName mod))
     | otherwise = Right (Right (moduleNameString (moduleName mod), toUnitId $ moduleUnit mod))
    classify reason _ = Left (RecompBecause reason)
 
@@ -574,8 +575,9 @@ checkDependencies hsc_env summary iface
    check_mods [] (old:_) = do
      -- This case can happen when a module is change from HPT to package import
      trace_hi_diffs logger $
-      text "module no longer " <> quotes (ppr old) <>
+      text "module no longer" <+> quotes (ppr old) <+>
         text "in dependencies"
+
      return (RecompBecause (ModuleRemoved old))
    check_mods (new:news) olds
     | Just (old, olds') <- uncons olds
@@ -1256,7 +1258,7 @@ getOrphanHashes :: HscEnv -> [Module] -> IO [Fingerprint]
 getOrphanHashes hsc_env mods = do
   eps <- hscEPS hsc_env
   let
-    hpt        = hsc_HPT hsc_env
+    hpt        = hsc_HUG hsc_env
     dflags     = hsc_dflags hsc_env
     pit        = eps_PIT eps
     ctx        = initSDocContext dflags defaultUserStyle
@@ -1545,7 +1547,7 @@ mkHashFun hsc_env eps name
   where
       home_unit = hsc_home_unit hsc_env
       dflags = hsc_dflags hsc_env
-      hpt = hsc_HPT hsc_env
+      hpt = hsc_HUG hsc_env
       pit = eps_PIT eps
       ctx = initSDocContext dflags defaultUserStyle
       occ = nameOccName name

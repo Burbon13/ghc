@@ -1,0 +1,8 @@
+[1 of 4] Compiling A                ( a/A.hs, a/A.o )
+[2 of 4] Compiling B                ( b/B.hs, b/B.o )
+[3 of 4] Compiling Main             ( c/C.hs, c/C.o )
+[4 of 4] Compiling Main             ( d/C.hs, d/C.o )
+Linking ./c/C ...
+Linking ./d/D ...
+unit C compiled successfully
+unit D compiled successfully

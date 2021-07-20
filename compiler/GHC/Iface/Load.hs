@@ -108,7 +108,7 @@ import GHC.Unit.State
 import GHC.Unit.Home
 import GHC.Unit.Home.ModInfo
 import GHC.Unit.Finder
-import GHC.Unit.Env ( ue_hpt )
+import GHC.Unit.Env ( ue_hpt, UnitEnv (ue_home_unit_graph), unitEnv_map, HomeUnitEnv (homeUnitEnv_hpt, homeUnitEnv_dflags), hugElts )
 
 import GHC.Data.Maybe
 import GHC.Data.FastString
@@ -118,6 +118,7 @@ import Data.Map ( toList )
 import System.FilePath
 import System.Directory
 import GHC.Driver.Env.KnotVars
+import Data.Bifunctor
 
 {-
 ************************************************************************
@@ -318,12 +319,7 @@ loadSrcInterface_maybe doc mod want_boot maybe_pkg
   -- interface; it will call the Finder again, but the ModLocation will be
   -- cached from the first search.
   = do hsc_env <- getTopEnv
-       let fc = hsc_FC hsc_env
-       let dflags = hsc_dflags hsc_env
-       let fopts = initFinderOpts dflags
-       let units = hsc_units hsc_env
-       let home_unit = hsc_home_unit hsc_env
-       res <- liftIO $ findImportedModule fc fopts units home_unit mod maybe_pkg
+       res <- liftIO $ findImportedModule hsc_env mod maybe_pkg
        case res of
            Found _ mod -> initIfaceTcRn $ loadInterface doc mod (ImportByUser want_boot)
            -- TODO: Make sure this error message is good
@@ -655,10 +651,11 @@ dontLeakTheHPT thing_inside = do
          keepFor20509 hmi
           | isHoleModule (mi_semantic_module (hm_iface hmi)) = True
           | otherwise = False
+         pruneHomeUnitEnv hme = hme { homeUnitEnv_hpt = emptyHomePackageTable }
          !unit_env
           = old_unit_env
-             { ue_hpt = if anyHpt keepFor20509 (ue_hpt old_unit_env) then ue_hpt old_unit_env
-                                                                     else emptyHomePackageTable
+             { ue_home_unit_graph = if anyHpt keepFor20509 (ue_hpt old_unit_env) then ue_home_unit_graph old_unit_env
+                                                                                 else unitEnv_map pruneHomeUnitEnv (ue_home_unit_graph old_unit_env)
              }
        in
        hsc_env {  hsc_targets      = panic "cleanTopEnv: hsc_targets"
@@ -708,14 +705,8 @@ computeInterface
   -> IO (MaybeErr SDoc (ModIface, FilePath))
 computeInterface hsc_env doc_str hi_boot_file mod0 = do
   massert (not (isHoleModule mod0))
-  let name_cache = hsc_NC hsc_env
-  let fc         = hsc_FC hsc_env
   let home_unit  = hsc_home_unit hsc_env
-  let units      = hsc_units hsc_env
-  let dflags     = hsc_dflags hsc_env
-  let logger     = hsc_logger hsc_env
-  let hooks      = hsc_hooks hsc_env
-  let find_iface m = findAndReadIface logger name_cache fc hooks units home_unit dflags doc_str
+  let find_iface m = findAndReadIface hsc_env doc_str
                                       m mod0 hi_boot_file
   case getModuleInstantiation mod0 of
       (imod, Just indef) | isHomeUnitIndefinite home_unit ->
@@ -762,14 +753,7 @@ moduleFreeHolesPrecise doc_str mod
             _otherwise -> Nothing
     readAndCache imod insts = do
         hsc_env <- getTopEnv
-        let nc        = hsc_NC hsc_env
-        let fc        = hsc_FC hsc_env
-        let home_unit = hsc_home_unit hsc_env
-        let units     = hsc_units hsc_env
-        let dflags    = hsc_dflags hsc_env
-        let logger    = hsc_logger hsc_env
-        let hooks     = hsc_hooks hsc_env
-        mb_iface <- liftIO $ findAndReadIface logger nc fc hooks units home_unit dflags
+        mb_iface <- liftIO $ findAndReadIface hsc_env
                                               (text "moduleFreeHolesPrecise" <+> doc_str)
                                               imod mod NotBoot
         case mb_iface of
@@ -861,13 +845,7 @@ See #8320.
 -}
 
 findAndReadIface
-  :: Logger
-  -> NameCache
-  -> FinderCache
-  -> Hooks
-  -> UnitState
-  -> HomeUnit
-  -> DynFlags
+  :: HscEnv
   -> SDoc            -- ^ Reason for loading the iface (used for tracing)
   -> InstalledModule -- ^ The unique identifier of the on-disk module we're looking for
   -> Module          -- ^ The *actual* module we're looking for.  We use
@@ -875,8 +853,18 @@ findAndReadIface
                      -- module we read out.
   -> IsBootInterface -- ^ Looking for .hi-boot or .hi file
   -> IO (MaybeErr SDoc (ModIface, FilePath))
-findAndReadIface logger name_cache fc hooks unit_state home_unit dflags doc_str mod wanted_mod hi_boot_file = do
+findAndReadIface hsc_env doc_str mod wanted_mod hi_boot_file = do
+
   let profile = targetProfile dflags
+      unit_state = hsc_units hsc_env
+      fc         = hsc_FC hsc_env
+      name_cache = hsc_NC hsc_env
+      home_unit  = hsc_home_unit hsc_env
+      dflags     = hsc_dflags hsc_env
+      logger     = hsc_logger hsc_env
+      hooks      = hsc_hooks hsc_env
+      other_fopts = map (second (initFinderOpts . homeUnitEnv_dflags)) (hugElts (hsc_HUG hsc_env))
+
 
   trace_if logger (sep [hsep [text "Reading",
                            if hi_boot_file == IsBoot
@@ -898,7 +886,7 @@ findAndReadIface logger name_cache fc hooks unit_state home_unit dflags doc_str 
       else do
           let fopts = initFinderOpts dflags
           -- Look for the file
-          mb_found <- liftIO (findExactModule fc fopts unit_state home_unit mod)
+          mb_found <- liftIO (findExactModule fc fopts other_fopts unit_state home_unit mod)
           case mb_found of
               InstalledFound (addBootSuffixLocn_maybe hi_boot_file -> loc) mod -> do
                   -- See Note [Home module load error]

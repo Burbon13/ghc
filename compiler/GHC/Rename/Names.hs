@@ -403,6 +403,7 @@ rnImportDecl this_mod
 
     hsc_env <- getTopEnv
     let home_unit = hsc_home_unit hsc_env
+        other_home_units = hsc_all_home_unit_ids hsc_env
         imv = ImportedModsVal
             { imv_name        = qual_mod_name
             , imv_span        = locA loc
@@ -411,7 +412,7 @@ rnImportDecl this_mod
             , imv_all_exports = potential_gres
             , imv_qualified   = qual_only
             }
-        imports = calculateAvails home_unit iface mod_safe' want_boot (ImportedByUser imv)
+        imports = calculateAvails home_unit other_home_units iface mod_safe' want_boot (ImportedByUser imv)
 
     -- Complain if we import a deprecated module
     case mi_warns iface of
@@ -436,12 +437,13 @@ rnImportDecl this_mod
 -- | Calculate the 'ImportAvails' induced by an import of a particular
 -- interface, but without 'imp_mods'.
 calculateAvails :: HomeUnit
+                -> [UnitId]
                 -> ModIface
                 -> IsSafeImport
                 -> IsBootInterface
                 -> ImportedBy
                 -> ImportAvails
-calculateAvails home_unit iface mod_safe' want_boot imported_by =
+calculateAvails home_unit other_home_units iface mod_safe' want_boot imported_by =
   let imp_mod    = mi_module iface
       imp_sem_mod= mi_semantic_module iface
       orph_iface = mi_orphan (mi_final_exts iface)
@@ -503,11 +505,11 @@ calculateAvails home_unit iface mod_safe' want_boot imported_by =
         | isHomeUnit home_unit pkg = ptrust
         | otherwise = False
 
-      dependent_pkgs = if isHomeUnit home_unit pkg
+      dependent_pkgs = if (toUnitId pkg) `elem` other_home_units
                         then S.empty
                         else S.singleton ipkg
 
-      direct_mods = mkModDeps $ if isHomeUnit home_unit pkg
+      direct_mods = mkModDeps $ if toUnitId pkg `elem` other_home_units
                       then S.singleton (GWIB (moduleName imp_mod) want_boot)
                       else S.empty
 

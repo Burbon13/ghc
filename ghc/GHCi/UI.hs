@@ -51,7 +51,6 @@ import GHC.Driver.Session as DynFlags
 import GHC.Driver.Ppr hiding (printForUser)
 import GHC.Utils.Error hiding (traceCmd)
 import GHC.Driver.Monad ( modifySession )
-import GHC.Driver.Config.Finder (initFinderOpts)
 import GHC.Driver.Config.Parser (initParserOpts)
 import GHC.Driver.Config.Diagnostic
 import qualified GHC
@@ -2043,13 +2042,8 @@ addModule files = do
     checkTargetModule :: GHC.GhcMonad m => ModuleName -> m Bool
     checkTargetModule m = do
       hsc_env <- GHC.getSession
-      let fc        = hsc_FC hsc_env
-      let home_unit = hsc_home_unit hsc_env
-      let units     = hsc_units hsc_env
-      let dflags    = hsc_dflags hsc_env
-      let fopts     = initFinderOpts dflags
       result <- liftIO $
-        Finder.findImportedModule fc fopts units home_unit m (Just (fsLit "this"))
+        Finder.findImportedModule hsc_env m (Just (fsLit "this"))
       case result of
         Found _ _ -> return True
         _ -> (liftIO $ putStrLn $
