@@ -7,6 +7,8 @@ test('multipleHomeUnits_cpp', [extra_files([ 'cpp-includes/', 'unitCPPIncludes']
 test('multipleHomeUnits_cfile', [extra_files([ 'c-file/', 'unitCFile'])], makefile_test, [])
 test('multipleHomeUnits_callstack', [extra_files([ 'callstack/', 'unitCallstack'])], makefile_test, [])
 
+test('multipleHomeUnits_cpp2', [extra_files([ 'cpp-includes/', 'cpp-import/', 'unitCPPImport', 'unitCPPIncludes'])], makefile_test, [])
+
 test('multipleHomeUnits001',
     [ extra_files(
         [ 'a/', 'b/'
@@ -45,6 +47,6 @@ test('multipleHomeUnitsModuleVisibility',
 
 test('multipleHomeUnitsPackageImports',
     [ extra_files(
-        [ 'b/', 'package-imports/'
-        , 'unitB', 'unitPI'])
+        [ 'b/', 'b2/', 'package-imports/'
+        , 'unitB', 'unitB2',  'unitPI'])
     ], makefile_test, [])

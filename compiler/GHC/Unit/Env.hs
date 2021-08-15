@@ -73,6 +73,7 @@ module GHC.Unit.Env
     , unitEnv_lookup
     , unitEnv_keys
     , unitEnv_hpts
+    , unitEnv_foldWithKey
     -- * Assertions
     , assertUnitEnvInvariant
     -- * Preload units info
@@ -105,6 +106,7 @@ import GHC.Utils.Panic (pprPanic)
 import GHC.Unit.Module.ModIface
 import GHC.Unit.Module
 import Data.Foldable (asum)
+import Data.Coerce
 
 data UnitEnv = UnitEnv
     { ue_eps :: {-# UNPACK #-} !ExternalUnitCache
@@ -304,8 +306,8 @@ instance Outputable (UnitEnvGraph elt) where
 
 type UnitEnvGraphKey = UnitId
 
-data UnitEnvGraph v = UnitEnvGraph
-  { unitEnv_graph :: !(Map UnitEnvGraphKey v)
+newtype UnitEnvGraph v = UnitEnvGraph
+  { unitEnv_graph :: (Map UnitEnvGraphKey v)
   } deriving (Functor, Foldable, Traversable)
 
 unitEnv_insert :: UnitEnvGraphKey -> v -> UnitEnvGraph v -> UnitEnvGraph v
@@ -360,6 +362,9 @@ unitEnv_elts env = Map.toList (unitEnv_graph env)
 
 unitEnv_hpts :: UnitEnvGraph HomeUnitEnv -> [HomePackageTable]
 unitEnv_hpts env = map homeUnitEnv_hpt (Map.elems (unitEnv_graph env))
+
+unitEnv_foldWithKey :: (b -> UnitEnvGraphKey -> a -> b) -> b -> UnitEnvGraph a -> b
+unitEnv_foldWithKey f z (UnitEnvGraph g)= Map.foldlWithKey' f z g
 
 -- -------------------------------------------------------
 -- Query and modify UnitState in HomeUnitEnv

@@ -123,24 +123,25 @@ ms_imps ms = ms_textual_imps ms ++ ms_plugin_imps ms
 ms_plugin_imps :: ModSummary -> [(Maybe FastString, Located ModuleName)]
 ms_plugin_imps ms = map ((Nothing,) . noLoc) (pluginModNames (ms_hspp_opts ms))
 
-home_imps :: [(Maybe FastString, Located ModuleName)] -> [Located ModuleName]
-home_imps imps = [ lmodname |  (mb_pkg, lmodname) <- imps,
+home_imps :: [FastString] -> [(Maybe FastString, Located ModuleName)] -> ([(Maybe FastString, Located ModuleName)])
+home_imps home_pkgs imps = [ (mb_pkg, lmodname) |  (mb_pkg, lmodname) <- imps,
                                   isLocal mb_pkg ]
   where isLocal Nothing = True
         isLocal (Just pkg) | pkg == fsLit "this" = True -- "this" is special
-        isLocal _ = False
+        isLocal (Just pkg) = pkg `elem` home_pkgs
 
 -- | Like 'ms_home_imps', but for SOURCE imports.
-ms_home_srcimps :: ModSummary -> [Located ModuleName]
-ms_home_srcimps = home_imps . ms_srcimps
+ms_home_srcimps :: ModSummary -> ([Located ModuleName])
+-- [] here because source imports can only refer to the current package.
+ms_home_srcimps = map snd . home_imps [] . ms_srcimps
 
 -- | All of the (possibly) home module imports from a
 -- 'ModSummary'; that is to say, each of these module names
 -- could be a home import if an appropriately named file
 -- existed.  (This is in contrast to package qualified
 -- imports, which are guaranteed not to be home imports.)
-ms_home_imps :: ModSummary -> [Located ModuleName]
-ms_home_imps = home_imps . ms_imps
+ms_home_imps :: [FastString] -> ModSummary -> ([(Maybe FastString, Located ModuleName)])
+ms_home_imps home_pkgs = home_imps home_pkgs . ms_imps
 
 -- The ModLocation contains both the original source filename and the
 -- filename of the cleaned-up source file after all preprocessing has been
@@ -172,6 +173,7 @@ instance Outputable ModSummary where
              nest 3 (sep [text "ms_hs_hash = " <> text (show (ms_hs_hash ms)),
                           text "ms_mod =" <+> ppr (ms_mod ms)
                                 <> text (hscSourceString (ms_hsc_src ms)) <> comma,
+                          text "unit =" <+> ppr (ms_unitid ms),
                           text "ms_textual_imps =" <+> ppr (ms_textual_imps ms),
                           text "ms_srcimps =" <+> ppr (ms_srcimps ms)]),
              char '}'

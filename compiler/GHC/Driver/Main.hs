@@ -693,7 +693,7 @@ hscRecompStatus
     let
         msg what = case mHscMessage of
           -- We use extendModSummaryNoDeps because extra backpack deps are only needed for batch mode
-          Just hscMessage -> hscMessage hsc_env mod_index what (ModuleNode (extendModSummaryNoDeps mod_summary))
+          Just hscMessage -> hscMessage hsc_env mod_index what (ModuleNode [] (extendModSummaryNoDeps mod_summary))
           Nothing -> return ()
 
       -- First check to see if the interface file agrees with the
@@ -1074,6 +1074,7 @@ batchMultiMsg = batchMsgWith (\_ _ _ node -> brackets (ppr (moduleGraphNodeUnitI
 
 batchMsgWith :: (HscEnv -> (Int, Int) -> RecompileRequired -> ModuleGraphNode -> SDoc) -> Messager
 batchMsgWith extra hsc_env mod_index recomp node = case node of
+    LinkNode uid _ -> showMsg (text "Linking ") (ppr uid)
     InstantiationNode _uid _ ->
         case recomp of
             MustCompile -> showMsg (text "Instantiating ") empty
@@ -1082,7 +1083,7 @@ batchMsgWith extra hsc_env mod_index recomp node = case node of
                 | otherwise -> return ()
             RecompBecause reason -> showMsg (text "Instantiating ")
                                             (text " [" <> pprWithUnitState state (ppr reason) <> text "]")
-    ModuleNode _ ->
+    ModuleNode _ _ ->
         case recomp of
             MustCompile -> showMsg (text "Compiling ") empty
             UpToDate

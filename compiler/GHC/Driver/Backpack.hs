@@ -573,7 +573,7 @@ mkBackpackMsg = do
               | otherwise -> return ()
             RecompBecause reason -> showMsg (text "Instantiating ")
                                             (text " [" <> pprWithUnitState state (ppr reason) <> text "]")
-        ModuleNode _ ->
+        ModuleNode _ _ ->
           case recomp of
             MustCompile -> showMsg (text "Compiling ") empty
             UpToDate
@@ -739,7 +739,7 @@ hsunitModuleGraph unit = do
             -- Using extendModSummaryNoDeps here is okay because we're making a leaf node
             -- representing a signature that can't depend on any other unit.
 
-    let graph_nodes = (ModuleNode <$> (nodes ++ req_nodes)) ++ (instantiationNodes (homeUnitId $ hsc_home_unit hsc_env) (hsc_units hsc_env))
+    let graph_nodes = (ModuleNode [] <$> (nodes ++ req_nodes)) ++ (instantiationNodes (homeUnitId $ hsc_home_unit hsc_env) (hsc_units hsc_env))
         key_nodes = map mkNodeKey graph_nodes
     -- This error message is not very good but .bkp mode is just for testing so
     -- better to be direct rather than pretty.
@@ -815,13 +815,13 @@ summariseDecl _pn hsc_src lmodname@(L loc modname) Nothing
          r <- liftIO $ summariseModule hsc_env (hsc_home_unit hsc_env)
                          emptyModNodeMap -- GHC API recomp not supported
                          (hscSourceToIsBoot hsc_src)
-                         lmodname
+                         lmodname Nothing
                          Nothing -- GHC API buffer support not supported
                          [] -- No exclusions
          case r of
             Nothing -> throwOneError $ fmap GhcDriverMessage
                                      $ mkPlainErrorMsgEnvelope loc (DriverBackpackModuleNotFound modname)
-            Just (Left err) -> throwErrors (fmap GhcDriverMessage err)
+            Just (Left (_, err)) -> throwErrors (fmap GhcDriverMessage err)
             Just (Right summary) -> return summary
 
 -- | Up until now, GHC has assumed a single compilation target per source file.

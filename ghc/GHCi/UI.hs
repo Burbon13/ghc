@@ -161,6 +161,7 @@ import GHC.IO.Handle ( hFlushAll )
 import GHC.TopHandler ( topHandler )
 
 import GHCi.Leak
+import GHC.Plugins (hsc_home_unit)
 
 -----------------------------------------------------------------------------
 
@@ -2066,10 +2067,13 @@ unAddModule files = do
 
 -- | @:reload@ command
 reloadModule :: GhciMonad m => String -> m ()
-reloadModule m = void $ doLoadAndCollectInfo True loadTargets
+reloadModule m = do
+  session <- GHC.getSession
+  let home_unit = homeUnitId (hsc_home_unit session)
+  void $ doLoadAndCollectInfo True (loadTargets home_unit)
   where
-    loadTargets | null m    = LoadAllTargets
-                | otherwise = LoadUpTo (GHC.mkModuleName m)
+    loadTargets hu | null m    = LoadAllTargets
+                | otherwise = LoadUpTo (GHC.mkModuleName m, hu)
 
 reloadModuleDefer :: GhciMonad m => String -> m ()
 reloadModuleDefer = wrapDeferTypeErrors . reloadModule

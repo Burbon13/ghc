@@ -220,8 +220,9 @@ processDeps dflags _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
       showSDoc dflags $
         vcat [ text "Unexpected backpack instantiation in dependency graph while constructing Makefile:"
              , nest 2 $ ppr node ]
+processDeps dflags _ _ _ _ (AcyclicSCC (LinkNode {})) = return ()
 
-processDeps dflags hsc_env excl_mods root hdl (AcyclicSCC (ModuleNode (ExtendedModSummary node _)))
+processDeps dflags hsc_env excl_mods root hdl (AcyclicSCC (ModuleNode _ (ExtendedModSummary node _)))
   = do  { let extra_suffixes = depSuffixes dflags
               include_pkg_deps = depIncludePkgDeps dflags
               src_file  = msHsFilePath node

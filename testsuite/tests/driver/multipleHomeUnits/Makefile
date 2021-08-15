@@ -29,6 +29,9 @@ multipleHomeUnits_single5: clean
 multipleHomeUnits_cpp: clean
 	'$(TEST_HC)' $(TEST_HC_OPTS) -unit @unitCPPIncludes -v0
 
+multipleHomeUnits_cpp2: clean
+	'$(TEST_HC)' $(TEST_HC_OPTS) -unit @unitCPPIncludes -unit @unitCPPImport  -v0
+
 multipleHomeUnits_cfile: clean
 	'$(TEST_HC)' $(TEST_HC_OPTS) -unit @unitCFile -v0
 
@@ -61,5 +64,5 @@ multipleHomeUnitsModuleVisibility: clean
 	'$(TEST_HC)' $(TEST_HC_OPTS) -unit @unitMV -unit @unitMV-import || true
 
 multipleHomeUnitsPackageImports: clean
-	'$(TEST_HC)' $(TEST_HC_OPTS) -unit @unitPI -unit @unitB
+	'$(TEST_HC)' $(TEST_HC_OPTS) -unit @unitPI -unit @unitB -unit @unitB2
 
