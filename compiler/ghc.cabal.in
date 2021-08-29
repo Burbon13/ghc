@@ -583,6 +583,7 @@ Library
         GHC.Stg.Lint
         GHC.Stg.InferTags
         GHC.Stg.InferTags.Rewrite
+        GHC.Stg.InferTags.TagSig
         GHC.Stg.InferTags.Types
         GHC.Stg.Pipeline
         GHC.Stg.Stats
@@ -607,6 +608,7 @@ Library
         GHC.StgToCmm.Monad
         GHC.StgToCmm.Prim
         GHC.StgToCmm.Prof
+        GHC.StgToCmm.TagCheck
         GHC.StgToCmm.Ticky
         GHC.StgToCmm.Types
         GHC.StgToCmm.Utils

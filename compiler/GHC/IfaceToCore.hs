@@ -1673,6 +1673,9 @@ tcIdInfo ignore_prags toplvl name ty info = do
       lf_info <- tcLFInfo lf_info
       return (info `setLFInfo` lf_info)
 
+    tcPrag info (HsTagSig sig) = do
+      return (info `setTagSig` sig)
+
         -- The next two are lazy, so they don't transitively suck stuff in
     tcPrag info (HsUnfold lb if_unf)
       = do { unf <- tcUnfolding toplvl name ty info if_unf

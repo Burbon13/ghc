@@ -68,7 +68,7 @@ module GHC.Types.Id.Info (
         emptyRuleInfo,
         isEmptyRuleInfo, ruleInfoFreeVars,
         ruleInfoRules, setRuleInfoHead,
-        ruleInfo, setRuleInfo,
+        ruleInfo, setRuleInfo, tagSigInfo,
 
         -- ** The CAFInfo type
         CafInfo(..),
@@ -76,8 +76,8 @@ module GHC.Types.Id.Info (
         cafInfo, setCafInfo,
 
         -- ** The LambdaFormInfo type
-        LambdaFormInfo(..),
-        lfInfo, setLFInfo,
+        LambdaFormInfo,
+        lfInfo, setLFInfo, setTagSig,
 
         -- ** Tick-box Info
         TickBoxOp(..), TickBoxId,
@@ -108,10 +108,11 @@ import GHC.Utils.Misc
 import GHC.Utils.Outputable
 import GHC.Utils.Panic
 import GHC.Utils.Panic.Plain
+import GHC.Stg.InferTags.TagSig
 
 import Data.Word
 
-import GHC.StgToCmm.Types (LambdaFormInfo (..))
+import {-# SOURCE #-} GHC.StgToCmm.Types (LambdaFormInfo)
 
 -- infixl so you can say (id `set` a `set` b)
 infixl  1 `setRuleInfo`,
@@ -126,7 +127,6 @@ infixl  1 `setRuleInfo`,
           `setDemandInfo`,
           `setNeverRepPoly`,
           `setLevityInfoWithType`
-
 {-
 ************************************************************************
 *                                                                      *
@@ -173,11 +173,12 @@ data IdDetails
   | CoVarId    -- ^ A coercion variable
                -- This only covers /un-lifted/ coercions, of type
                -- (t1 ~# t2) or (t1 ~R# t2), not their lifted variants
-  | JoinId JoinArity           -- ^ An 'Id' for a join point taking n arguments
+  | JoinId JoinArity (Maybe [StrictnessMark])
+        -- ^ An 'Id' for a join point taking n arguments
         -- Note [Join points] in "GHC.Core"
   | StrictWorkerId [StrictnessMark]
         -- ^ An 'Id' for a worker function, which expects some arguments to be
-        -- passed both evaluated and tagged. TODO: Reference Note
+        -- passed both evaluated and tagged. TODO: Write and reference Note
 
 
 
@@ -203,15 +204,9 @@ isCoVarDetails :: IdDetails -> Bool
 isCoVarDetails CoVarId = True
 isCoVarDetails _       = False
 
-isJoinIdDetails_maybe :: IdDetails -> Maybe JoinArity
-isJoinIdDetails_maybe (JoinId join_arity) = Just join_arity
+isJoinIdDetails_maybe :: IdDetails -> Maybe (JoinArity, (Maybe [StrictnessMark]))
+isJoinIdDetails_maybe (JoinId join_arity marks) = Just (join_arity, marks)
 isJoinIdDetails_maybe _                   = Nothing
-
-hasCbvMarks_maybe :: IdDetails -> Maybe [StrictnessMark]
-hasCbvMarks_maybe details =
-  case details of
-    StrictWorkerId marks -> Just marks
-    _ -> Nothing
 
 instance Outputable IdDetails where
     ppr = pprIdDetails
@@ -233,7 +228,7 @@ pprIdDetails other     = brackets (pp other)
                               = brackets $ text "RecSel" <>
                                            ppWhen is_naughty (text "(naughty)")
    pp CoVarId                 = text "CoVarId"
-   pp (JoinId arity)          = text "JoinId" <> parens (int arity)
+   pp (JoinId arity marks)          = text "JoinId" <> parens (int arity) <> parens (ppr marks)
 
 {-
 ************************************************************************
@@ -286,7 +281,10 @@ data IdInfo
         -- 4% in some programs. See #17497 and associated MR.
         --
         -- See documentation of the getters for what these packed fields mean.
-        lfInfo          :: !(Maybe LambdaFormInfo)
+        lfInfo          :: !(Maybe LambdaFormInfo),
+
+        -- See documentation of the getters for what these packed fields mean.
+        tagSig          :: !(Maybe TagSig)
     }
 
 -- | Encodes arities, OneShotInfo, CafInfo and LevityInfo.
@@ -377,6 +375,9 @@ cafInfo = bitfieldGetCafInfo . bitfield
 callArityInfo :: IdInfo -> ArityInfo
 callArityInfo = bitfieldGetCallArityInfo . bitfield
 
+tagSigInfo :: IdInfo -> Maybe TagSig
+tagSigInfo = tagSig
+
 -- Setters
 
 setRuleInfo :: IdInfo -> RuleInfo -> IdInfo
@@ -426,6 +427,9 @@ setCafInfo info caf =
 setLFInfo :: IdInfo -> LambdaFormInfo -> IdInfo
 setLFInfo info lf = info { lfInfo = Just lf }
 
+setTagSig :: IdInfo -> TagSig -> IdInfo
+setTagSig info sig = info { tagSig = Just sig }
+
 setOneShotInfo :: IdInfo -> OneShotInfo -> IdInfo
 setOneShotInfo info lb =
     info { bitfield = bitfieldSetOneShotInfo lb (bitfield info) }
@@ -456,7 +460,8 @@ vanillaIdInfo
                              bitfieldSetOneShotInfo NoOneShotInfo $
                              bitfieldSetLevityInfo NoLevityInfo $
                              emptyBitField,
-            lfInfo         = Nothing
+            lfInfo         = Nothing,
+            tagSig         = Nothing
            }
 
 -- | More informative 'IdInfo' we can use when we know the 'Id' has no CAF references

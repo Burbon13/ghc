@@ -10,17 +10,19 @@ The code for *top-level* bindings is in GHC.Iface.Tidy.
 
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 module GHC.Core.Tidy (
-        tidyExpr, tidyRules, tidyUnfolding
+        tidyExpr, tidyRules, tidyUnfolding, tidyCbvInfo
     ) where
 
 import GHC.Prelude
 
 import GHC.Core
+import GHC.Core.Type
+import GHC.Core.DataCon
+
 import GHC.Core.Seq ( seqUnfolding )
 import GHC.Types.Id
 import GHC.Types.Id.Info
 import GHC.Types.Demand ( zapDmdEnvSig )
-import GHC.Core.Type     ( tidyType, tidyVarBndr )
 import GHC.Core.Coercion ( tidyCo )
 import GHC.Types.Var
 import GHC.Types.Var.Env
@@ -30,6 +32,7 @@ import GHC.Types.Name hiding (tidyNameOcc)
 import GHC.Types.SrcLoc
 import GHC.Types.Tickish
 import GHC.Data.Maybe
+import GHC.Utils.Misc
 import Data.List (mapAccumL)
 
 {-
@@ -45,17 +48,92 @@ tidyBind :: TidyEnv
          ->  (TidyEnv, CoreBind)
 
 tidyBind env (NonRec bndr rhs)
-  = tidyLetBndr env env bndr =: \ (env', bndr') ->
-    (env', NonRec bndr' (tidyExpr env' rhs))
+  = -- pprTrace "tidyBindNonRec" (ppr bndr) $
+    let cbv_bndr = (tidyCbvInfo bndr rhs)
+        (env', bndr') = tidyLetBndr env env cbv_bndr
+        tidy_rhs = (tidyExpr env' rhs)
+    in (env', NonRec bndr' tidy_rhs)
 
 tidyBind env (Rec prs)
-  = let
-       (bndrs, rhss)  = unzip prs
-       (env', bndrs') = mapAccumL (tidyLetBndr env') env bndrs
+  = -- pprTrace "tidyBindRec" (ppr $ map fst prs) $
+    let
+       cbv_bndrs = map ((\(bnd,rhs) -> tidyCbvInfo bnd rhs)) prs
+       (_bndrs, rhss)  = unzip prs
+       (env', bndrs') = mapAccumL (tidyLetBndr env') env cbv_bndrs
     in
     map (tidyExpr env') rhss =: \ rhss' ->
     (env', Rec (zip bndrs' rhss'))
 
+
+-- Note [Attaching CBV Marks to ids]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- During tidy we convert OtherCon[]
+-- unfoldings on argument ids to functions
+-- to CBV marks on the functions binder itself
+-- for code generation purposes.
+
+-- The actual logic is in tidyCbvInfo and takes:
+-- * The function id:
+-- * The functions rhs
+
+-- And gives us back the function annotated with the marks.
+-- We call it in:
+-- * tidyTopPair for top level bindings
+-- * tidyBind for local bindings.
+-- Not that we *have* to look at the untidied rhs.
+-- During tidying some knot-tying occurs which can blow up
+-- if we look at the types of the arguments. But that's ok
+-- we only check if the manifest lambdas have OtherCon unfoldings
+-- and these remain valid post tidy.
+
+
+tidyCbvInfo :: HasCallStack => Id -> CoreExpr -> Id
+tidyCbvInfo id rhs =
+  -- pprTrace "tidyBindDetail"
+  --     (ppr id $$
+  --     --  ppr ((prettyCallStack callStack)) $$
+  --     text "val_args" <> ppr val_args $$
+  --     ppr (map (ppr . idUnfolding) val_args) $$
+  --     ppr (map (ppr . idType) val_args) $$
+  --     ppr (map (ppr . isMultiValArg) val_args) $$
+  --     text "result_marks:" <> ppr (cbv_marks) $$
+  --     text "valid_worker" <> ppr (valid_unlifted_worker val_args)
+  --      ) $
+  -- For a binding we:
+  -- * Look at the args
+  -- * Mark any with Unf=OtherCon[] as cbv
+  -- * Potentially combine it with existing marks (from ww)
+  -- Update the id
+  let
+  in cbv_bndr
+  where
+    (_,val_args,_body) = collectTyAndValBinders rhs
+    new_marks = mkCbvMarks val_args
+    cbv_marks = new_marks
+    cbv_bndr
+        | valid_unlifted_worker val_args
+        -- Avoid retaining the original rhs
+        = cbv_marks `seqList` setIdCbvMarks id cbv_marks
+        | otherwise =
+          -- pprTraceDebug "tidyCbvInfo: Worker seems to take unboxed tuple/sum types!" (ppr id <+> ppr rhs)
+          id
+    -- Workers don't get unboxed tuples/sums so we can afford to be conservative.
+    -- This means we don't have to consider unarise when matching marks with args.
+    -- In theory (# #) would be fine, but WW doesn't generate it so we just rule out this
+    -- kind of argument completely.
+    valid_unlifted_worker args =
+      -- pprTrace "valid_unlifted" (ppr id $$ ppr args) $
+      not $ (any (\arg -> isMultiValArg arg) args)
+    isMultiValArg id =
+      let ty = idType id
+      in not (isStateType ty) && (isUnboxedTupleType ty || isUnboxedSumType ty)
+    -- Only covered actually strict arguments.
+    mkCbvMarks :: [Id] -> [StrictnessMark]
+    mkCbvMarks = reverse . dropWhile (not . isMarkedStrict) .  reverse . map mkMark
+      where
+        mkMark arg = if isEvaldUnfolding (idUnfolding arg) && (not $ isUnliftedType (idType arg))
+          then MarkedStrict
+          else NotMarkedStrict
 
 ------------  Expressions  --------------
 tidyExpr :: TidyEnv -> CoreExpr -> CoreExpr
@@ -181,7 +259,6 @@ tidyLetBndr rec_tidy_env env@(tidy_env, var_env) id
         details  = idDetails id
         id'      = mkLocalVar details name' mult' ty' new_info
         var_env' = extendVarEnv var_env id id'
-
         -- Note [Tidy IdInfo]
         -- We need to keep around any interesting strictness and
         -- demand info because later on we may need to use it when

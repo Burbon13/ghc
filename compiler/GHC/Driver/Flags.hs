@@ -93,7 +93,8 @@ data DumpFlag
    | Opt_D_dump_prep
    | Opt_D_dump_stg_from_core -- ^ Initial STG (CoreToStg output)
    | Opt_D_dump_stg_unarised  -- ^ STG after unarise
-   | Opt_D_dump_stg_final     -- ^ Final STG (after stg2stg)
+   | Opt_D_dump_stg_cg     -- ^ STG (after stg2stg)
+   | Opt_D_dump_stg_final     -- ^ Final STG (before cmm gen)
    | Opt_D_dump_stg_tags
    | Opt_D_dump_call_arity
    | Opt_D_dump_exitify
@@ -224,6 +225,8 @@ data GeneralFlag
    | Opt_WeightlessBlocklayout         -- ^ Layout based on last instruction per block.
    | Opt_CprAnal
    | Opt_WorkerWrapper
+   | Opt_WorkerWrapperUnlift -- ^ Try to pass strict (boxed!) lifted arguments unlifted.
+   | Opt_WorkerWrapperUnliftRec -- ^ Try to pass strict (boxed!) lifted arguments unlifted.
    | Opt_SolveConstantDicts
    | Opt_AlignmentSanitisation
    | Opt_CatchBottoms
@@ -442,6 +445,8 @@ optimisationFlags = EnumSet.fromList
    , Opt_WeightlessBlocklayout
    , Opt_CprAnal
    , Opt_WorkerWrapper
+   , Opt_WorkerWrapperUnlift
+   , Opt_WorkerWrapperUnliftRec
    , Opt_SolveConstantDicts
    , Opt_CatchBottoms
    , Opt_IgnoreAsserts

@@ -38,6 +38,7 @@ import GHC.Stg.Syntax as StgSyn hiding (AlwaysEnter)
 
 import GHC.Data.Maybe
 import GHC.Utils.Panic
+import GHC.Utils.Panic.Plain
 
 import GHC.Utils.Outputable
 import GHC.Utils.Monad.State.Strict
@@ -49,6 +50,7 @@ import Control.Monad
 import Data.Coerce
 
 
+-- import GHC.Utils.Trace
 -- import GHC.Driver.Ppr
 
 newtype RM a = RM { unRM :: (State (UniqFM Id TagSig, UniqSupply, Module) a) }
@@ -67,7 +69,39 @@ The idea is simple:
 
 This is described in detail in Note [Strict field invariant].
 
+Note [Partially applied workers]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Sometimes we will get a function f of the form
+    -- Arity 1
+    f :: Dict a -> a -> b -> (c -> d)
+    f dict a b = case dict of
+        C m1 m2 -> m1 a b
+
+Which will result in a W/W split along the lines of
+    -- Arity 1
+    f :: Dict a -> a -> b -> (c -> d)
+    f dict a = case dict of
+        C m1 m2 -> $wf m1 a b
+
+    -- Arity 4
+    $wf :: (a -> b -> d -> c) -> a -> b -> c -> d
+    $wf m1 a b c = m1 a b c
+
+It's notable that the worker is called *undersatured* in the wrapper.
+At runtime what happens is that the wrapper will allocate a PAP which
+once fully applied will call the worker. And all is fine.
+
+But what about a strict worker! Well the function returned by `f` will
+be a unknown call, so we lose the ability to enfore the invariant that
+cbv marked arguments from StictWorkerId's are actually properly tagged
+as the annotations will be unavailable at the (unknown) call site.
+
+So what we need to do is build an explicit wrapper around the worker
+which covers at least all the unlifted arguments.
+
 -}
+
+
 
 
 --------------------------------
@@ -234,7 +268,7 @@ rewriteBinds b@(StgRec binds) =
 rewriteRhs :: (Id,TagSig) -> InferStgRhs
            -> RM (-- Bool, -- Should we turn it into an updateable closure
                 TgStgRhs)
-rewriteRhs (_id, tagSig) (StgRhsCon ccs con cn ticks args) = {-# SCC rewriteRhs_ #-} do
+rewriteRhs (_id, _tagSig) (StgRhsCon ccs con cn ticks args) = {-# SCC rewriteRhs_ #-} do
     -- pprTraceM "rewriteRhs" (ppr _id)
 
     -- Look up the nodes representing the constructor arguments.
@@ -261,8 +295,9 @@ rewriteRhs (_id, tagSig) (StgRhsCon ccs con cn ticks args) = {-# SCC rewriteRhs_
             -- So we convert it into a RhsClosure.
             -- which will evaluate the arguments first when applied to an expression.
             -- Turn the rhs into a closure that evaluates the arguments to the strict fields
-            conExpr <- mkSeqs evalArgs con cn args (panic "mkSeqs should not need to provide types")
-            return $! (StgRhsClosure noExtFieldSilent ccs Updatable [] $! conExpr)
+            let ty_stub = panic "mkSeqs shouldn't use the type arg"
+            conExpr <- mkSeqs args evalArgs (\taggedArgs -> StgConApp con cn taggedArgs ty_stub)
+            return $! (StgRhsClosure noExtFieldSilent ccs ReEntrant [] $! conExpr)
 rewriteRhs _binding (StgRhsClosure ext ccs flag args body) = do
     -- mapM_ addBinder  args
     withBinders args $ do
@@ -326,13 +361,15 @@ rewriteConApp (StgConApp con cn args tys) = do
     if (not $ null evalArgs)
         then do
             -- pprTraceM "Creating conAppSeqs for " $ ppr nodeId <+> parens ( ppr evalArgs ) -- <+> parens ( ppr fieldInfos )
-            mkSeqs evalArgs con cn args tys
+            mkSeqs args evalArgs (\taggedArgs -> StgConApp con cn taggedArgs tys)
         else return $! (StgConApp con cn args tys)
 
 rewriteConApp _ = panic "Impossible"
 
 rewriteApp :: IsScrut -> InferStgExpr -> RM TgStgExpr
 rewriteApp True (StgApp _nodeId f args)
+    -- | pprTrace "rewriteAppScrut" (ppr f <+> ppr args) False
+    -- = undefined
     | null args = do
         tagInfo <- isTagged f
         let !enter = (extInfo $ tagInfo)
@@ -340,9 +377,26 @@ rewriteApp True (StgApp _nodeId f args)
   where
     extInfo True        = StgSyn.NoEnter
     extInfo False       = StgSyn.MayEnter
-    -- extInfo MaybeEnter        = StgSyn.MayEnter
-    -- extInfo NoValue          = StgSyn.MayEnter
-    -- extInfo UndetEnterInfo    = StgSyn.MayEnter
+rewriteApp _ (StgApp _nodeId f args)
+    -- | pprTrace "rewriteAppOther" (ppr f <+> ppr args) False
+    -- = undefined
+    | Just marks <- idCbvMarks_maybe f
+    -- , pprTrace "marks" (ppr f $$ ppr marks) True
+    -- , length marks <= length args
+    , assert (length marks <= length args) True
+    , any isMarkedStrict marks
+    = unliftArg marks
+
+    where
+      unliftArg marks = do
+        argTags <- mapM isArgTagged args
+        let argInfo = zipWith3 ((,,)) args (marks++repeat NotMarkedStrict)  argTags :: [(StgArg, StrictnessMark, Bool)]
+
+            -- untagged cbv argument positions
+            cbvArgInfo = filter (\x -> sndOf3 x == MarkedStrict && thdOf3 x == False) argInfo
+            cbvArgIds = [x | StgVarArg x <- map fstOf3 cbvArgInfo] :: [Id]
+        mkSeqs args cbvArgIds (\cbv_args -> StgApp MayEnter f cbv_args)
+
 
 rewriteApp _ (StgApp _ f args) = return $ StgApp MayEnter f args
 rewriteApp _ _ = panic "Impossible"
@@ -358,8 +412,15 @@ mkSeq id bndr !expr =
     StgCase (StgApp MayEnter id []) bndr altTy [(DEFAULT, [], expr)]
 
 -- Create a ConApp which is guaranteed to evaluate the given ids.
-mkSeqs :: [Id] -> DataCon -> ConstructorNumber -> [StgArg] -> [Type] -> RM TgStgExpr
-mkSeqs untaggedIds con cn args tys = do
+{-# INLINE mkSeqs #-} -- We inline to avoid allocating mkExpr
+mkSeqs  :: [StgArg] -- ^ Original arguments
+        -> [Id]     -- ^ var args to be evaluated ahead of time
+        -> ([StgArg] -> TgStgExpr)
+                    -- ^ Function that reconstructs the expressions when passed
+                    -- the now all evaluated arguments.
+        -> RM TgStgExpr
+-- mkSeqs :: [Id] -> DataCon -> ConstructorNumber -> [StgArg] -> [Type] -> RM TgStgExpr
+mkSeqs args untaggedIds mkExpr = do
     argMap <- mapM (\arg -> (arg,) <$> mkLocalArgId arg ) untaggedIds :: RM [(InId, OutId)]
     -- mapM_ (pprTraceM "Forcing strict args before allocation:" . ppr) argMap
     let taggedArgs :: [StgArg]
@@ -368,7 +429,7 @@ mkSeqs untaggedIds con cn args tys = do
                         lit -> lit)
                     args
 
-    let conBody = StgConApp con cn taggedArgs tys
+    let conBody = mkExpr taggedArgs
     let body = foldr (\(v,bndr) expr -> mkSeq v bndr expr) conBody argMap
     return $! body
 

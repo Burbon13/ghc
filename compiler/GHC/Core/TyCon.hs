@@ -2502,7 +2502,6 @@ tcHasFixedRuntimeRep FamilyTyCon{}        = False
 tcHasFixedRuntimeRep PrimTyCon{}          = True
 tcHasFixedRuntimeRep TcTyCon{}            = False
 tcHasFixedRuntimeRep tc@PromotedDataCon{} = pprPanic "tcHasFixedRuntimeRep datacon" (ppr tc)
-
 -- | Is this 'TyCon' concrete (i.e. not a synonym/type family)?
 --
 -- Used for representation polymorphism checks.

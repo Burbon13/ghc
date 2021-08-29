@@ -25,6 +25,7 @@ import GHC.Tc.Types
 import GHC.Tc.Utils.Env
 
 import GHC.Core
+import GHC.Core.Type
 import GHC.Core.Unfold
 import GHC.Core.Unfold.Make
 import GHC.Core.FVs
@@ -36,7 +37,6 @@ import GHC.Core.Lint
 import GHC.Core.Rules
 import GHC.Core.Opt.Arity   ( exprArity, exprBotStrictness_maybe )
 import GHC.Core.InstEnv
-import GHC.Core.Type     ( tidyTopType )
 import GHC.Core.DataCon
 import GHC.Core.TyCon
 import GHC.Core.Class
@@ -1238,10 +1238,12 @@ tidyTopPair :: UnfoldingOpts
         -- in the IdInfo of one early in the group
 
 tidyTopPair uf_opts show_unfold rhs_tidy_env name' (bndr, rhs)
-  = (bndr1, rhs1)
+  = -- pprTrace "tidyTop" (ppr name' <+> ppr details <+> ppr rhs) $
+    (bndr1, rhs1)
+
   where
     bndr1    = mkGlobalId details name' ty' idinfo'
-    details  = idDetails bndr   -- Preserve the IdDetails
+    details  = idDetails (bndr `tidyCbvInfo` rhs)   -- Preserve the IdDetails
     ty'      = tidyTopType (idType bndr)
     rhs1     = tidyExpr rhs_tidy_env rhs
     idinfo'  = tidyTopIdInfo uf_opts rhs_tidy_env name' rhs rhs1 (idInfo bndr)

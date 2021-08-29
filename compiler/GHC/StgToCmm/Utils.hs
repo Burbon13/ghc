@@ -303,8 +303,6 @@ newUnboxedTupleRegs res_ty
     choose_regs _ (AssignTo regs _) = return regs
     choose_regs platform _          = mapM (newTemp . primRepCmmType platform) reps
 
-
-
 -------------------------------------------------------------------------
 --      emitMultiAssign
 -------------------------------------------------------------------------

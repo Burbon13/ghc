@@ -26,6 +26,7 @@ import GHC.StgToCmm.Layout
 import GHC.StgToCmm.Lit
 import GHC.StgToCmm.Prim
 import GHC.StgToCmm.Hpc
+import GHC.StgToCmm.TagCheck
 import GHC.StgToCmm.Ticky
 import GHC.StgToCmm.Utils
 import GHC.StgToCmm.Closure
@@ -339,6 +340,9 @@ Hence: two basic plans for
         ...no heap check...
 
   -- Reasoning for Plan C:
+
+   This is fairly similar to A, however there is no code to execute to
+   get the value of e.
 
    When using GcInAlts the return point for heap checks and evaluating
    the scrutinee is shared. This does mean we might execute the actual
@@ -944,20 +948,6 @@ cgConApp con mn stg_args
         ; tickyReturnNewCon (length stg_args)
         ; emitReturn [idInfoToAmode idinfo] }
 
--- | Call barf if we failed to predict a tag correctly.
-emitTagAssertion :: String -> CmmExpr -> FCode ()
-emitTagAssertion onWhat fun = do
-  { platform <- getPlatform
-  ; lret <- newBlockId
-  ; lfault <- newBlockId
-  -- ; pprTraceM "emitTagAssertion" (text onWhat)
-  ; emit $ mkCbranch (cmmIsTagged platform fun)
-                     lret lfault Nothing
-  ; emitLabel lfault
-  ; emitBarf ("Tag inference failed on:" ++ onWhat)
-  ; emitLabel lret
-  }
-
 cgIdApp :: AppEnters -> Id -> [StgArg] -> FCode ReturnKind
 cgIdApp strict fun_id args = do
     platform       <- getPlatform
@@ -980,6 +970,7 @@ cgIdApp strict fun_id args = do
 
         -- A value infered to be in WHNF, so we can just return it.
         InferedReturnIt
+          -- | True -> cgIdApp MayEnter fun_id args
           | isVoidTy (idType fun_id) -> trace >> emitReturn []
           | otherwise                -> trace >> assertTag >>
                                         emitReturn [fun]

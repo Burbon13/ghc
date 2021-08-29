@@ -542,7 +542,7 @@ tryWW ww_opts is_rec fn_id rhs
   = return [ (new_fn_id, rhs ) ]
 
   | is_fun && is_eta_exp
-  = splitFun ww_opts new_fn_id rhs
+  = splitFun ww_opts new_fn_id fn_info rhs
 
   -- See Note [Thunk splitting]
   | isNonRec is_rec, is_thunk
@@ -709,8 +709,8 @@ by LitRubbish (see Note [Drop absent bindings]) so there is no great harm.
 
 
 ---------------------
-splitFun :: WwOpts -> Id -> CoreExpr -> UniqSM [(Id, CoreExpr)]
-splitFun ww_opts fn_id rhs
+splitFun :: WwOpts -> Id -> IdInfo -> CoreExpr -> UniqSM [(Id, CoreExpr)]
+splitFun ww_opts fn_id fn_info rhs
   = warnPprTrace (not (wrap_dmds `lengthIs` (arityInfo fn_info)))
                  (ppr fn_id <+> (ppr wrap_dmds $$ ppr cpr)) $
     do { mb_stuff <- mkWwBodies ww_opts fn_id arg_vars (exprType body) wrap_dmds cpr
@@ -753,7 +753,8 @@ mkWWBindPair :: WwOpts -> Id -> IdInfo
              -> [(Id, CoreExpr)]
 mkWWBindPair ww_opts fn_id fn_info fn_args fn_body work_uniq div
              (work_demands, cbv_marks :: [StrictnessMark], join_arity, wrap_fn, work_fn)
-  = [(work_id, work_rhs), (wrap_id, wrap_rhs)]
+  = -- pprTrace "mkWW" (ppr work_id) $
+    [(work_id, work_rhs), (wrap_id, wrap_rhs)]
      -- Worker first, because wrapper mentions it
   where
     arity = arityInfo fn_info
@@ -807,7 +808,6 @@ mkWWBindPair ww_opts fn_id fn_info fn_args fn_body work_uniq div
                         -- through
 
                 `setIdCbvMarks` cbv_marks
-                -- `setIdCbvMarks2` cbv_marks
 
                 `asJoinId_maybe` work_join_arity
                 -- `setIdThing` (undefined cbv_marks)

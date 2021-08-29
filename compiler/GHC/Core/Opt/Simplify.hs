@@ -3072,6 +3072,11 @@ simplAlt env scrut' _ case_bndr' cont' (Alt (DataAlt con) vs rhs)
 
         ; env'' <- addAltUnfoldings env' scrut' case_bndr' con_app
         ; rhs' <- simplExprC env'' rhs cont'
+        -- ; pprTraceM "simplAlt" (
+        --       ppr con $$
+        --       ppr vs_with_evals $$
+        --       ppr (map (isEvaldUnfolding . idUnfolding) vs_with_evals )
+        --       )
         ; return (Alt (DataAlt con) vs' rhs') }
 
 {- Note [Adding evaluatedness info to pattern-bound variables]

@@ -2420,6 +2420,8 @@ dynamic_flags_deps = [
         (setDumpFlag Opt_D_dump_stg_unarised)
   , make_ord_flag defGhcFlag "ddump-stg-final"
         (setDumpFlag Opt_D_dump_stg_final)
+  , make_ord_flag defGhcFlag "ddump-stg-cg"
+        (setDumpFlag Opt_D_dump_stg_cg)
   , make_dep_flag defGhcFlag "ddump-stg"
         (setDumpFlag Opt_D_dump_stg_from_core)
         "Use `-ddump-stg-from-core` or `-ddump-stg-final` instead"
@@ -3362,6 +3364,8 @@ fFlagsDeps = [
   flagSpec "unbox-strict-fields"              Opt_UnboxStrictFields,
   flagSpec "version-macros"                   Opt_VersionMacros,
   flagSpec "worker-wrapper"                   Opt_WorkerWrapper,
+  flagSpec "worker-wrapper-strict"            Opt_WorkerWrapperUnlift,
+  flagSpec "worker-wrapper-rec"               Opt_WorkerWrapperUnliftRec,
   flagSpec "solve-constant-dicts"             Opt_SolveConstantDicts,
   flagSpec "catch-bottoms"                    Opt_CatchBottoms,
   flagSpec "alignment-sanitisation"           Opt_AlignmentSanitisation,
@@ -3727,6 +3731,7 @@ impliedGFlags = [(Opt_DeferTypeErrors, turnOn, Opt_DeferTypedHoles)
                 ,(Opt_DeferTypeErrors, turnOn, Opt_DeferOutOfScopeVariables)
                 ,(Opt_DoLinearCoreLinting, turnOn, Opt_DoCoreLinting)
                 ,(Opt_Strictness, turnOn, Opt_WorkerWrapper)
+                ,(Opt_WorkerWrapper, turnOn, Opt_WorkerWrapperUnliftRec)
                 ] ++ validHoleFitsImpliedGFlags
 
 -- General flags that are switched on/off when other general flags are switched
@@ -3864,6 +3869,7 @@ optLevelFlags -- see Note [Documenting optimisation flags]
     , ([1,2],   Opt_UnboxSmallStrictFields)
     , ([1,2],   Opt_CprAnal)
     , ([1,2],   Opt_WorkerWrapper)
+    , ([1,2],   Opt_WorkerWrapperUnliftRec )
     , ([1,2],   Opt_SolveConstantDicts)
     , ([1,2],   Opt_NumConstantFolding)
 

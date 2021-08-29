@@ -6,20 +6,21 @@
  -- To permit: type instance XLet 'InferTaggedBinders = XLet 'Vanilla
 
 module GHC.Stg.InferTags.Types
-
+    ( module GHC.Stg.InferTags.Types
+    , module TagSig)
 where
 
 import GHC.Prelude
 
 import GHC.Core.DataCon
+import GHC.Core.Type (isUnliftedType)
 import GHC.Types.Id
 import GHC.Stg.Syntax
-import GHC.Types.Basic ( Arity )
+import GHC.Stg.InferTags.TagSig as TagSig
 import GHC.Types.Var.Env
 import GHC.Utils.Outputable
 import GHC.Utils.Misc( zipWithEqual )
 
-import GHC.StgToCmm.Types ( LambdaFormInfo(..) )
 import GHC.Utils.Panic
 
 {- *********************************************************************
@@ -28,7 +29,7 @@ import GHC.Utils.Panic
 *                                                                      *
 ********************************************************************* -}
 
-type instance BinderP 'InferTaggedBinders = (Id, TagSig)
+type instance BinderP      'InferTaggedBinders = (Id, TagSig)
 type instance XLet         'InferTaggedBinders = XLet         'Vanilla
 type instance XLetNoEscape 'InferTaggedBinders = XLetNoEscape 'Vanilla
 type instance XRhsClosure  'InferTaggedBinders = XRhsClosure  'Vanilla
@@ -39,23 +40,6 @@ type InferStgBinding    = GenStgBinding    'InferTaggedBinders
 type InferStgExpr       = GenStgExpr       'InferTaggedBinders
 type InferStgRhs        = GenStgRhs        'InferTaggedBinders
 type InferStgAlt        = GenStgAlt        'InferTaggedBinders
-
-instance OutputableBndr (Id,TagSig) where
-  pprInfixOcc  = ppr
-  pprPrefixOcc = ppr
-
-data TagInfo
-  = TagDunno
-  | TagTuple [TagInfo]  -- Unboxed tuple
-  | TagProper           -- Heap pointer to properly-tagged value
-  | TagTagged           -- Bottom of the domain.
-  deriving( Eq )
-
-instance Outputable TagInfo where
-  ppr TagTagged      = text "TagTagged"
-  ppr TagDunno       = text "TagDunno"
-  ppr TagProper      = text "TagProper"
-  ppr (TagTuple tis) = text "TagTuple" <> brackets (pprWithCommas ppr tis)
 
 combineAltInfo :: TagInfo -> TagInfo -> TagInfo
 combineAltInfo TagDunno         _              = TagDunno
@@ -99,16 +83,12 @@ makeTagged env = TE { te_env = te_env env
                     , te_get = fst
                     , te_ext = ExtEqEv }
 
-data TagSig  -- The signature for each binding
-  = TagSig Arity TagInfo -- TODO: I think we can skip the arity, it should always be available via idArity
-                         -- for all cases where we compute it.
-  deriving( Eq )
-
-instance Outputable TagSig where
-  ppr (TagSig ar ti) = char '<' <> ppr ar <> comma <> ppr ti <> char '>'
-
 noSig :: TagEnv p -> BinderP p -> (Id, TagSig)
-noSig env bndr = (getBinderId env bndr, TagSig 0 TagDunno)
+noSig env bndr
+  | isUnliftedType (idType var) = (var, TagSig (idArity var) TagProper)
+  | otherwise = (var, TagSig 0 TagDunno)
+  where
+    var = getBinderId env bndr
 
 lookupSig :: TagEnv p -> Id -> Maybe TagSig
 lookupSig env fun = lookupVarEnv (te_env env) fun
@@ -120,9 +100,14 @@ lookupInfo env (StgVarArg var)
   , isNullaryRepDataCon dc
   = TagProper
 
-  -- Variables in the environment
-  | Just (TagSig 0 info) <- lookupVarEnv (te_env env) var
-  = info
+  | isUnliftedType (idType var)
+  = TagProper
+
+  -- Variables in the environment.
+  | Just (TagSig arity info) <- lookupVarEnv (te_env env) var
+  = if arity == 0
+      then info
+      else TagDunno
 
   -- | Just lf_info <- idLFInfo_maybe var
   -- =   case lf_info of
