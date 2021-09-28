@@ -1057,7 +1057,7 @@ cvtl e = wrapLA (cvt e)
     cvt (ImplicitParamVarE n) = do { n' <- ipName n; return $ HsIPVar noComments n' }
     cvt (GetFieldE exp f) = do { e' <- cvtl exp
                                ; return $ HsGetField noComments e' (L noSrcSpan (DotFieldOcc noAnn (L noSrcSpan (fsLit f)))) }
-    cvt (ProjectionE xs) = return $ HsProjection noAnn $ map (L noSrcSpan . DotFieldOcc noAnn . L noSrcSpan . fsLit) xs
+    cvt (ProjectionE xs) = return $ HsProjection noAnn $ fmap (L noSrcSpan . DotFieldOcc noAnn . L noSrcSpan . fsLit) xs
 
 {- | #16895 Ensure an infix expression's operator is a variable/constructor.
 Consider this example:
