@@ -119,3 +119,9 @@ T7072:
 	"$(TEST_HC)" -c T7072-main.c -o T7072-main.o
 	"$(TEST_HC)" T7072-main.c -o T7072-main -no-hs-main -debug
 	./T7072-main T7072-obj.o
+
+.PHONY: T20494
+T20494:
+	"$(TEST_HC)" -c T20494-obj.cpp -o T20494-obj.o
+	"$(TEST_HC)" T20494.hs
+	./T20494 T20494-obj.o
