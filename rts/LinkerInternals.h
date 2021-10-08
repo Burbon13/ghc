@@ -342,8 +342,11 @@ extern Mutex dl_mutex;
 #endif
 #endif
 
-/* Type of the initializer */
+/* Type of a initializer */
 typedef void (*init_t) (int argc, char **argv, char **env);
+
+/* Type of a finalizer */
+typedef void (*fini_t) ();
 
 /* SymbolInfo tracks a symbol's address, the object code from which
    it originated, and whether or not it's weak.

@@ -1293,6 +1293,11 @@ freePreloadObjectFile (ObjectCode *oc)
  */
 void freeObjectCode (ObjectCode *oc)
 {
+    // Run finalizers
+#if defined(OBJFORMAT_ELF)
+    ocRunFini_ELF(oc);
+#endif
+
     if (oc->type == DYNAMIC_OBJECT) {
 #if defined(OBJFORMAT_ELF)
         ACQUIRE_LOCK(&dl_mutex);
