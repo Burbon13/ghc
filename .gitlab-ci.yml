@@ -525,7 +525,7 @@ release-x86_64-freebsd:
 
 validate-x86_64-darwin:
   extends: .validate-hadrian
-  stage: full-build
+  stage: tool-lint
   tags:
     - x86_64-darwin-m1
 
@@ -589,7 +589,7 @@ validate-x86_64-darwin:
 
 validate-aarch64-darwin:
   extends: .validate-hadrian
-  stage: full-build
+  stage: tool-lint
   tags:
     - aarch64-darwin-m1
 
