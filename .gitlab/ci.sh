@@ -188,7 +188,7 @@ function set_toolchain_paths() {
     *) ;;
   esac
 
-  if [ -z "$CC" ]; then CC="$(which cc)"; fi
+  if [ -z "${CC:-}" ]; then CC="$(which cc)"; fi
 
   if [[ -n "$needs_toolchain" ]]; then
       # These are populated by setup_toolchain
