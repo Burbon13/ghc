@@ -68,7 +68,6 @@ infix  4 `elem`, `notElem`
 --
 -- WARNING: This function is partial. You can use case-matching, 'uncons' or
 -- 'listToMaybe' instead.
-head                    :: [a] -> a
 head                    :: HasCallStack => [a] -> a
 head (x:_)              =  x
 head []                 =  badHead
@@ -116,7 +115,6 @@ uncons (x:xs)           = Just (x, xs)
 --
 -- WARNING: This function is partial. You can use case-matching or 'uncons'
 -- instead.
-tail                    :: [a] -> [a]
 tail                    :: HasCallStack => [a] -> [a]
 tail (_:xs)             =  xs
 tail []                 =  errorEmptyList "tail"
@@ -133,7 +131,6 @@ tail []                 =  errorEmptyList "tail"
 --
 -- WARNING: This function is partial. You can use 'reverse' with case-matching,
 -- 'uncons' or 'listToMaybe' instead.
-last                    :: [a] -> a
 last                    :: HasCallStack => [a] -> a
 #if defined(USE_REPORT_PRELUDE)
 last [x]                =  x
@@ -163,7 +160,6 @@ lastError = errorEmptyList "last"
 --
 -- WARNING: This function is partial. You can use 'reverse' with case-matching
 -- or 'uncons' instead.
-init                    :: [a] -> [a]
 init                    :: HasCallStack => [a] -> [a]
 #if defined(USE_REPORT_PRELUDE)
 init [x]                =  []
