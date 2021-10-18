@@ -18,6 +18,10 @@
 
   * `returnA` is defined as `Control.Category.id` instead of `arr id`.
 
+  * A large number of partial functions in `Data.List` and `Data.List.NonEmpty` now
+    have a HasCallStack constraint. Hopefully providing better error messages in case
+    they are used in unexpected ways.
+
 ## 4.16.0.0 *TBA*
 
   * Add a `Typeable` constraint to `fromStaticPtr` in the class `GHC.StaticPtr.IsStatic`.
