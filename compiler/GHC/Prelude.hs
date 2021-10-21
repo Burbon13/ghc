@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Custom GHC "Prelude"
 --
@@ -14,6 +15,12 @@ module GHC.Prelude
   (module X
   ,module Bits
   ,shiftL, shiftR
+#if __GLASGOW_HASKELL__ < 903
+  ,SomeExceptionWithLocation
+  ,pattern SomeExceptionWithLocation
+#else
+  ,SomeExceptionWithLocation(..)
+#endif
   ) where
 
 
@@ -36,6 +43,11 @@ NoImplicitPrelude. There are two motivations for this:
 
 import Prelude as X hiding ((<>))
 import Data.Foldable as X (foldl')
+#if __GLASGOW_HASKELL__ < 903
+import Control.Exception ( Exception, SomeException(..) )
+#else
+import Control.Exception ( SomeExceptionWithLocation(..) )
+#endif
 
 #if MIN_VERSION_base(4,16,0)
 import GHC.Bits as Bits hiding (shiftL, shiftR)
@@ -84,4 +96,12 @@ shiftR = Bits.shiftR
 #else
 shiftL = Bits.unsafeShiftL
 shiftR = Bits.unsafeShiftR
+#endif
+
+#if __GLASGOW_HASKELL__ < 903
+type SomeExceptionWithLocation = SomeException
+
+{-# COMPLETE SomeExceptionWithLocation #-}
+pattern SomeExceptionWithLocation :: () => forall e. Exception e => e -> SomeException
+pattern SomeExceptionWithLocation e = SomeException e
 #endif

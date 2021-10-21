@@ -117,7 +117,7 @@ main = do
 
   out_pipe <- do
     let go n = E.try (connectTo verbose host_ip port >>= socketToPipe) >>= \case
-          Left e | n == 0 -> E.throw (e :: E.SomeException)
+          Left e | n == 0 -> E.throw (e :: E.SomeExceptionWithLocation)
                  | n >  0 -> threadDelay 500000 >> go (n - 1)
           Right a -> return a
       in go 120 -- wait for up to 60seconds (polling every 0.5s).
