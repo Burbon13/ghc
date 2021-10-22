@@ -51,14 +51,17 @@ base = do
   let machDeps     = "rts/include/MachDeps.h"
   let ghcautoconf  = stage1Lib </> "ghcautoconf.h"
   let ghcplatform  = stage1Lib </> "ghcplatform.h"
-  -- ./configure is called here manually because we need to generate
-  -- HsBaseConfig.h, which is created from HsBaseConfig.h.in. ./configure
-  -- is usually run by Cabal which generates this file but if we do that
-  -- then hadrian thinks it needs to build the stage0 compiler before
+  let rtsConfigLocal = stage1Lib </> "include/rts/ConfigLocal.h"
+  -- The libraries' `./configure`s are called here manually because we need to
+  -- generate `HsBaseConfig.h` and `rts/ConfigLocal.h`, which are created from
+  -- `HsBaseConfig.h.in` and `ConfigLocal.h.autoconf`, respectfully. These
+  -- `./configure`s is usually run by Cabal which generates this file but if we
+  -- do that then hadrian thinks it needs to build the stage0 compiler before
   -- attempting to configure. Therefore we just run it directly everytime,
   -- which is slower but still faster than building the whole of stage0.
   cmd_ (Cwd "libraries/base") "./configure"
-  need [ghcautoconf, ghcplatform, machDeps]
+  cmd_ (Cwd "rts") "./configure"
+  need [ghcautoconf, ghcplatform, machDeps, rtsConfigLocal]
   let includeDirs =
         [ "rts/include"
         , "libraries/base/include"

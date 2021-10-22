@@ -45,7 +45,8 @@ includes_H_FILES := $(subst /./,/,$(includes_H_FILES))
 includes_H_FILES_GENERATED = \
     ghcautoconf.h \
     ghcplatform.h \
-    ghcversion.h
+    ghcversion.h \
+    rts/ConfigLocal.h
 
 # Unlike above, include generated files. We still need the previous list
 # without the generated files separtely and not just as part of this due to
@@ -132,10 +133,10 @@ $$(includes_$1_H_CONFIG) : mk/config.h mk/config.mk rts/include/ghc.mk | $$$$(di
 	@echo "#endif /* __GHCAUTOCONF_H__ */"          >> $$@
 	@echo "Done."
 
-endef
-
 $(eval $(call includesHeaderConfig,0))
 $(eval $(call includesHeaderConfig,1))
+
+endef
 
 BuildPlatform_0_CPP = $(BuildPlatform_CPP)
 BuildPlatform_1_CPP = $(HostPlatform_CPP)
