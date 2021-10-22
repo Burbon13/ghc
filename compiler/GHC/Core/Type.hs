@@ -260,6 +260,7 @@ import {-# SOURCE #-} GHC.Builtin.Types
                                  ( charTy, naturalTy, listTyCon
                                  , typeSymbolKind, liftedTypeKind, unliftedTypeKind
                                  , liftedRepTyCon, unliftedRepTyCon
+                                 , boxedRepDataConTyCon, liftedRepTy, unliftedRepTy
                                  , constraintKind
                                  , unrestrictedFunTyCon
                                  , manyDataConTy, oneDataConTy )
@@ -1635,16 +1636,17 @@ tyConBindersTyCoBinders = map to_tyb
     to_tyb (Bndr tv (NamedTCB vis)) = Named (Bndr tv vis)
     to_tyb (Bndr tv (AnonTCB af))   = Anon af (tymult (varType tv))
 
--- | Create the plain type constructor type which has been applied to no type arguments at all.
+-- | (mkTyCon tc) returns (TyConApp tc [])
+-- but arranges to share that TyConApp among all calls
+-- See Note [Sharing nullary TyConApps] in GHC.Core.TyCon
 mkTyConTy :: TyCon -> Type
 mkTyConTy tycon = tyConNullaryTy tycon
-  -- see Note [Sharing nullary TyConApps] in GHC.Core.TyCon
 
 -- | A key function: builds a 'TyConApp' or 'FunTy' as appropriate to
 -- its arguments.  Applies its arguments to the constructor from left to right.
 mkTyConApp :: TyCon -> [Type] -> Type
 mkTyConApp tycon tys
-  | null tys
+  | null tys  -- See Note [Sharing nullary TyConApps] in GHC.Core.TyCon
   = mkTyConTy tycon
 
   | isFunTyCon tycon
@@ -1652,17 +1654,21 @@ mkTyConApp tycon tys
   -- The FunTyCon (->) is always a visible one
   = FunTy { ft_af = VisArg, ft_mult = w, ft_arg = ty1, ft_res = ty2 }
 
-  -- See Note [Prefer Type over TYPE 'LiftedRep].
+  -- See Note [Prefer Type over TYPE (BoxedRep Lifted)]
   | tycon `hasKey` tYPETyConKey
   , [rep] <- tys
   = tYPE rep
+
+  | tycon == boxedRepDataConTyCon
+  , [lev] <- tys
+  = boxedRep lev
+
   -- The catch-all case
   | otherwise
   = TyConApp tycon tys
 
-{-
-Note [Prefer Type over TYPE 'LiftedRep]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+{- Note [Prefer Type over TYPE (BoxedRep Lifted)]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The Core of nearly any program will have numerous occurrences of
 @TYPE 'LiftedRep@ (and, equivalently, 'Type') floating about. Concretely, while
 investigating #17292 we found that these constituting a majority of TyConApp
@@ -1695,39 +1701,57 @@ nullary type synonyms] in "GHC.Core.Type".
 
 To accomplish these we use a number of tricks:
 
- 1. Instead of representing the lifted kind as
-    @TyConApp tYPETyCon [liftedRepDataCon]@ we rather prefer to
-    use the 'GHC.Types.Type' type synonym (represented as a nullary TyConApp).
-    This serves goal (b) since there are no applied type arguments to traverse,
-    e.g., during comparison.
+ 1. Instead of (TyConApp BoxedRep [TyConApp Lifted []]),
+    we prefer  (TyConApp LiftedRep [])
+    where `LiftedRep` is a type synonym:
+       type LiftedRep = BoxedRep Lifted
+    Similarly for UnliftedRep
 
- 2. We have a top-level binding to represent `TyConApp GHC.Types.Type []`
+ 2. Instead of (TyConApp TYPE [TyConApp LiftedRep []])
+    we prefer  (TyConApp Type [])
+    where `Type` is a type synonym
+       type Type = TYPE LiftedRep
+    Similarly for UnliftedType
+
+These serve goal (b) since there are no applied type arguments to traverse,
+e.g., during comparison.
+
+ 3. We have a top-level binding to represent `TyConApp GHC.Types.Type []`
     (namely 'GHC.Builtin.Types.Prim.liftedTypeKind'), ensuring that we
     don't need to allocate such types (goal (a)).
 
- 3. We use the sharing mechanism described in Note [Sharing nullary TyConApps]
+ 4. We use the sharing mechanism described in Note [Sharing nullary TyConApps]
     in GHC.Core.TyCon to ensure that we never need to allocate such
     nullary applications (goal (a)).
 
-See #17958.
+See #17958, #20541
 -}
 
 
 -- | Given a @RuntimeRep@, applies @TYPE@ to it.
+-- On the fly it rewrites
+--      TYPE LiftedRep      -->   liftedTypeKind    (a synonym)
+--      TYPE UnliftedRep    -->   unliftedTypeKind  (ditto)
+-- NB: no need to check for TYPE (BoxedRep Lifted), TYPE (BoxedRep Unlifted)
+--     because those inner types should already have been rewritten
+--     to LiftedRep and UnliftedRep respectively
+--
 -- See Note [TYPE and RuntimeRep] in GHC.Builtin.Types.Prim.
 tYPE :: Type -> Type
-tYPE rr@(TyConApp tc [arg])
-  -- See Note [Prefer Type of TYPE 'LiftedRep]
-  | tc `hasKey` boxedRepDataConKey
-  , TyConApp tc' [] <- arg
-  = if | tc' `hasKey` liftedDataConKey   -> liftedTypeKind   -- TYPE (BoxedRep 'Lifted)
-       | tc' `hasKey` unliftedDataConKey -> unliftedTypeKind -- TYPE (BoxedRep 'Unlifted)
-       | otherwise                       -> TyConApp tYPETyCon [rr]
-  | tc == liftedRepTyCon                               -- TYPE LiftedRep
-  = liftedTypeKind
-  | tc == unliftedRepTyCon                             -- TYPE UnliftedRep
-  = unliftedTypeKind
-tYPE rr = TyConApp tYPETyCon [rr]
+tYPE (TyConApp tc []) -- See Note [Prefer Type over TYPE (BoxedRep Lifted)]
+  | tc == liftedRepTyCon    = liftedTypeKind         -- TYPE LiftedRep
+  | tc == unliftedRepTyCon  = unliftedTypeKind       -- TYPE UnliftedRep
+tYPE rr                     = TyConApp tYPETyCon [rr]
+
+boxedRep :: Type -> Type
+-- ^ Given a `Levity`, apply `BoxedRep` to it
+-- On the fly, rewrite
+--      BoxedRep Lifted     -->   liftedRepTy    (a synonym)
+--      BoxedRep Unlifted   -->   unliftedRepTy  (ditto)
+boxedRep (TyConApp tc [])
+  | tc `hasKey` liftedDataConKey   = liftedRepTy    -- BoxedRep Lifted
+  | tc `hasKey` boxedRepDataConKey = unliftedRepTy  -- BoxedRep Unlifted
+boxedRep lev                       = TyConApp boxedRepDataConTyCon [lev]
 
 
 {-
@@ -2528,8 +2552,8 @@ We perform this optimisation in a number of places:
 
 This optimisation is especially helpful for the ubiquitous GHC.Types.Type,
 since GHC prefers to use the type synonym over @TYPE 'LiftedRep@ applications
-whenever possible. See Note [Prefer Type over TYPE 'LiftedRep] in
-GHC.Core.TyCo.Rep for details.
+whenever possible. See Note [Prefer Type over TYPE (BoxedRep Lifted)] in
+GHC.Core.Type for details.
 
 -}
 
