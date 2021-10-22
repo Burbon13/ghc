@@ -574,6 +574,8 @@ library
     extra-source-files:
                -- This file needs to be in the package but shouldn't be compiled on its own.
                xxhash.c
+               configure
+               configure.ac
 
     if os(windows)
        c-sources: win32/AsyncMIO.c

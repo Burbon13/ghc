@@ -45,7 +45,8 @@ includes_H_FILES := $(subst /./,/,$(includes_H_FILES))
 includes_H_FILES_GENERATED = \
     ghcautoconf.h \
     ghcplatform.h \
-    ghcversion.h
+    ghcversion.h \
+    rts/ConfigLocal.h
 
 # Unlike above, include generated files. We still need the previous list
 # without the generated files separtely and not just as part of this due to

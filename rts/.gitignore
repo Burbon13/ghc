@@ -1,0 +1,29 @@
+*.o
+*.aux
+*.hi
+*.tix
+*.exe
+
+# Backup files
+*~
+
+# Specific generated files
+/dist/
+/dist-*/
+
+/rts.cabal
+
+/package.conf.inplace
+/package.conf.inplace.raw
+/package.conf.install
+/package.conf.install.raw
+/fs.*
+
+/autom4te.cache/
+/config.log
+/config.status
+/configure
+
+/ConfigLocal.h.autoconf.in
+/ConfigLocal.h.autoconf
+/include/rts/ConfigLocal.h
