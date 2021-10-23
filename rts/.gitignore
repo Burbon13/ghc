@@ -24,6 +24,7 @@
 /config.status
 /configure
 
+/rts.buildinfo
 /ConfigLocal.h.autoconf.in
 /ConfigLocal.h.autoconf
 /include/rts/ConfigLocal.h
