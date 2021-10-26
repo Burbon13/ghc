@@ -83,7 +83,7 @@ generatedDependencies = do
             , package rts      ? return (fmap (rtsPath -/-) libffiHeaderFiles
                 ++ includes
                 ++ ((libDir -/-) <$> derivedConstantsFiles))
-            , stage0 ? return includes ]
+            ]
 
 generate :: FilePath -> Context -> Expr String -> Action ()
 generate file context expr = do
@@ -122,8 +122,10 @@ generatePackageCode context@(Context stage pkg _) = do
 
     when (pkg == compiler) $ do
         root -/- primopsTxt stage %> \file -> do
-            includes <- includesDependencies stage
-            need $ [primopsSource] ++ includes
+            when (stage /= Stage0) $ do
+                includes <- includesDependencies stage
+                need includes
+            need $ [primopsSource]
             build $ target context HsCpp [primopsSource] [file]
 
     when (pkg == rts) $ do
@@ -178,7 +180,7 @@ generateRules = do
     (root -/- "ghc-stage2") <~+ ghcWrapper Stage2
     (root -/- "ghc-stage3") <~+ ghcWrapper Stage3
 
-    forM_ [Stage0 ..] $ \stage -> do
+    forM_ [Stage1 ..] $ \stage -> do
         let prefix = root -/- stageString stage -/- "lib"
             go gen file = generate file (semiEmptyTarget stage) gen
         (prefix -/- "ghcplatform.h") %> go generateGhcPlatformH

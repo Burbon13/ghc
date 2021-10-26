@@ -13,15 +13,12 @@
 #
 # Header files built from the configure script's findings
 #
-includes_0_H_CONFIG   = rts/include/dist/build/ghcautoconf.h
 includes_1_H_CONFIG   = rts/include/dist-install/build/ghcautoconf.h
 includes_2_H_CONFIG   = $(includes_1_H_CONFIG)
 
-includes_0_H_PLATFORM = rts/include/dist/build/ghcplatform.h
 includes_1_H_PLATFORM = rts/include/dist-install/build/ghcplatform.h
 includes_2_H_PLATFORM = $(includes_1_H_PLATFORM)
 
-includes_0_H_VERSION  = rts/include/dist/build/ghcversion.h
 includes_1_H_VERSION  = rts/include/dist-install/build/ghcversion.h
 includes_2_H_VERSION  = $(includes_1_H_VERSION)
 
@@ -287,11 +284,9 @@ endif
 # Install all header files
 
 $(eval $(call clean-target,includes,,\
-  $(includes_0_H_CONFIG) $(includes_0_H_PLATFORM) $(includes_0_H_VERSION) \
   $(includes_1_H_CONFIG) $(includes_1_H_PLATFORM) $(includes_1_H_VERSION)))
 
 $(eval $(call all-target,includes,\
-  $(includes_0_H_CONFIG) $(includes_0_H_PLATFORM) $(includes_0_H_VERSION) \
   $(includes_1_H_CONFIG) $(includes_1_H_PLATFORM) $(includes_1_H_VERSION) \
   $(includes_DERIVEDCONSTANTS)))
 

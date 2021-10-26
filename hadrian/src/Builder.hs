@@ -205,7 +205,7 @@ instance H.Builder Builder where
           -- Read the boot GHC version here to make sure we rebuild when it
           -- changes (#18001).
           _bootGhcVersion <- setting GhcVersion
-          includesDependencies Stage0
+          pure []
         Ghc _ stage -> do
             root <- buildRoot
             touchyPath <- programPath (vanillaContext Stage0 touchy)
