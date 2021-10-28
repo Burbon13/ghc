@@ -25,8 +25,8 @@ module GHC.Stg.Syntax (
         GenStgTopBinding(..), GenStgBinding(..), GenStgExpr(..), GenStgRhs(..),
         GenStgAlt, AltType(..),
 
-        StgPass(..), BinderP, XRhsClosure, XLet, XLetNoEscape, XStgApp,
-        NoExtFieldSilent, noExtFieldSilent, AppEnters(..), noEnterInfo,
+        StgPass(..), BinderP, XRhsClosure, XLet, XLetNoEscape,
+        NoExtFieldSilent, noExtFieldSilent,
 
         OutputablePass,
 
@@ -222,7 +222,6 @@ There is no constructor for a lone variable; it would appear as @StgApp var []@.
 
 data GenStgExpr pass
   = StgApp
-        (XStgApp pass)
         Id       -- function
         [StgArg] -- arguments; may be empty
 
@@ -500,14 +499,14 @@ The Plain STG parameterisation
     Stg -> FvStg -> LlStg -> Stg
 
   CodeGen:
-    Stg -> TgStg (Predict tags of bindings, stored in XStgApp)
-    TgStg -> CgStg (Add free variables, stored in XRhsClosure)
+    As part of CodeGen we run tag inference.
+    Tag Inference:
+      Stg -> Stg 'InferTaggedBinders` -> Stg
 
-  Finally CgStg is used to generate Cmm, using both XStgCase and XRhsClosure.
+    And at a last step we add the free Variables:
+      Stg -> CgStg
 
-  Extension point information only has to be retained from Tg onwards. So
-  for simple optimization passes run as part of SimplStg there is no need to
-  preserve extension point information.
+  Which finally CgStg being used to generate Cmm.
 
 -}
 
@@ -572,22 +571,26 @@ StgPass data type indexes:
   1. CoreToStg.Prep performs several transformations that prepare the desugared
      and simplified core to be converted to STG. One of these transformations is
      making it so that value lambdas only exist as the RHS of a binding.
+     See Note [CorePrep Overview].
 
   2. CoreToStg converts the prepared core to STG, specifically GenStg*
-     parameterised by 'Vanilla.
+     parameterised by 'Vanilla. See the GHC.CoreToStg Module.
 
   3. Stg.Pipeline does a number of passes on the generated STG. One of these is
      the lambda-lifting pass, which internally uses the 'LiftLams
      parameterisation to store information for deciding whether or not to lift
      each binding.
+     See Note [Late lambda lifting in STG].
 
   4. Tag inference takes in 'Vanilla and produces 'InferTagged STG, while using
      the InferTaggedBinders annotated AST internally.
+     See Note [Tag inference].
 
   5. Stg.FVs annotates closures with their free variables. To store these
      annotations we use the 'CodeGen parameterisation.
+     See the GHC.Stg.FVs module.
 
-  6. Stg.StgToCmm generates Cmm from the CodeGen annotated STG.
+  6. The Module Stg.StgToCmm generates Cmm from the CodeGen annotated STG.
 -}
 
 
@@ -601,22 +604,6 @@ data StgPass
                 -- See Note [Tag inference passes] in GHC.Stg.InferTags
   | CodeGen
 
--- | Determines if this StgApp expression enters the "function"
-data AppEnters = NoEnter  -- ^ For tagged and evaluated lifted values
-               | AlwaysEnter -- ^ Always enter without looking at tag - currently not used.
-               | MayEnter -- ^ Otherwise
-               deriving (Eq)
-
-noEnterInfo :: AppEnters
-noEnterInfo = MayEnter
-
-instance Outputable AppEnters where
-  ppr NoEnter = text "[tagged]"
-  ppr MayEnter = empty
-  ppr AlwaysEnter = text "[thunk]"
-
--- TODO: Do we really want to the extension point type families to have a closed
--- domain?
 type family BinderP (pass :: StgPass)
 type instance BinderP 'Vanilla = Id
 type instance BinderP 'CodeGen = Id
@@ -637,13 +624,6 @@ type family XLetNoEscape (pass :: StgPass)
 type instance XLetNoEscape 'Vanilla = NoExtFieldSilent
 type instance XLetNoEscape 'InferTagged = NoExtFieldSilent
 type instance XLetNoEscape 'CodeGen = NoExtFieldSilent
-
--- Binders used in StgApp, we mark some of these
--- as strict to make sure we don't make redundant evaluatins.
-type family XStgApp (pass :: StgPass)
-type instance XStgApp 'Vanilla = AppEnters
-type instance XStgApp 'InferTagged = AppEnters
-type instance XStgApp 'CodeGen = AppEnters
 
 {-
 
@@ -712,7 +692,6 @@ type OutputablePass pass =
   , Outputable (XLetNoEscape pass)
   , Outputable (XRhsClosure pass)
   , OutputableBndr (BinderP pass)
-  , Outputable (XStgApp pass)
   )
 
 -- | STG pretty-printing options
@@ -787,7 +766,7 @@ pprStgExpr opts e = case e of
                            -- special case
    StgLit lit           -> ppr lit
                            -- general case
-   StgApp ext func args     -> hang (ppr func <> ppr ext) 4 (interppSP args)
+   StgApp func args     -> hang (ppr func) 4 (interppSP args) -- TODO: Print taggedness
    StgConApp con n args _ -> hsep [ ppr con, ppr n, brackets (interppSP args) ]
    StgOpApp op args _   -> hsep [ pprStgOp op, brackets (interppSP args)]
 

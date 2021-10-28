@@ -16,10 +16,10 @@ import GHC.Core.DataCon
 import GHC.Core.TyCon
 import GHC.Core.Type
 import GHC.Types.Id
-import GHC.Types.Id.Info (tagSigInfo)
+import GHC.Types.Id.Info (tagSigInfo, setTagSig)
 import GHC.Types.Name
 import GHC.Stg.Syntax
-import GHC.Types.Basic ( Arity, TopLevelFlag(..), RecFlag(..) )
+import GHC.Types.Basic ( Arity, TopLevelFlag(..), RecFlag(..), CbvMark (MarkedCbv, NotMarkedCbv), isMarkedCbv )
 import GHC.Types.Var.Env
 import GHC.Types.Var.Set
 import GHC.Types.RepType (dataConRuntimeRepStrictness)
@@ -51,19 +51,43 @@ For example
 
 Here x will be properly tagged: it will point to the heap-allocated
 values for (Just y), and the tag-bits of the pointer will encode
-the tag for Just.
+the tag for Just so there is no need to re-enter the closure or even
+check for the presence of tag bits. The impacts of this can be very large.
 
-We then take this information in GHC.Stg.InferTags.Rewrite to rewriteTopBinds.
+For containers the reduction in runtimes with this optimization was as follows:
 
-Note [Strict field invariant]
+intmap-benchmarks:    89.30%
+intset-benchmarks:    90.87%
+map-benchmarks:       88.00%
+sequence-benchmarks:  99.84%
+set-benchmarks:       85.00%
+set-operations-intmap:88.64%
+set-operations-map:   74.23%
+set-operations-set:   76.50%
+lookupge-intmap:      89.57%
+lookupge-map:         70.95%
+
+With nofib being ~0.3% faster as well.
+
+See Note [Tag inference passes] for how we proceed to generate and use this information.
+
+Note [Strict Field Invariant]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-As part of tag inference we introduce the strict field invariant.
+As part of tag inference we introduce the Strict Field Invariant.
 Which consist of us saying that:
 
-* Pointers in strict fields must be save to re-evaluate and be
-  properly tagged.
+* Pointers in strict fields must (a) point directly to the value, and
+  (b) must be properly tagged.
 
-Why? Because if we have code like:
+For example, given
+  data T = MkT ![Int]
+
+the Strict Field Invariant guarantees that the first field of any `MkT` constructor
+will either point directly to nil, or directly to a cons cell;
+and will be tagged with `001` or `010` respectively. It
+will never point to a thunk, nor will it be tagged `000` (meaning "might be a thunk").
+
+Why do we care? Because if we have code like:
 
 case strictPair of
   SP x y ->
@@ -72,6 +96,8 @@ case strictPair of
 It allows us to safely omit the code to enter x and the check
 for the presence of a tag that goes along with it.
 However we might still branch on the tag as usual.
+See Note [Tag inference] for how much impact this can have for
+some code.
 
 This is enforced by the code GHC.Stg.InferTags.Rewrite
 where we:
@@ -80,74 +106,72 @@ where we:
 * Check if arguments to their strict fields are known to be properly tagged
 * If not we convert `StrictJust x` into `case x of x' -> StrictJust x'`
 
-However we try to push the case up the AST into the next closure.
+This is usually very beneficial but can cause regressions in rare edge cases where
+we fail to proof that x is properly tagged, or where it simply isn't.
+See Note [How untagged pointers can end up in strict fields] for how the second case
+can arise.
 
-For a full example consider this code:
+For a full example of the impact consider this code:
 
 foo ... = ...
   let c = StrictJust x
   in ...
 
-Naively we would rewrite `let c = StrictJust` into `let c = case x of x' -> StrictJust x'`
-However that is horrible! We would end up allocating a thunk for `c` first, which only when
-evaluated would allocate the constructor.
+Here we would rewrite `let c = StrictJust x` into `let c = case x of x' -> StrictJust x'`
+However that is horrible! We end up allocating a thunk for `c` first, which only when
+evaluated will allocate the constructor.
 
-So instead we try to push the case "up" into a surrounding closure context. So for this case
-we instead produce:
+So we do our best to establish that `x` is already tagged (which it almost always is)
+to avoid this cost. In my benchmarks I haven't seen any cases where this causes regressions.
 
-  foo ... = ...
-    case x of x' ->
-      DEFAULT -> let c = StrictJust x'
-                in ...
+Note [How untagged pointers can end up in strict fields]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider
+  data Set a = Tip | Bin !a (Set a) (Set a)
 
-Which means c remains a regular constructor allocation and we avoid unneccesary overhead.
-The only problems to this approach are top level definitions and recursive bindings.
+We make a wrapper for Bin that evaluates its arguments
+  $WBin x a b = case x of xv -> Bin xv a b
+Here `xv` will always be evaluated and properly tagged, just as the
+Strict Field Invariant requires.
 
-For top level bindings we accept the fact that some constructor applications end up as thunks.
-It's a rare enough thing that it doesn't really matter and the computation will be shared anyway.
+But alas the Simplifier can destroy the invariant: see #15696.
+We start with
+  thk = f ()
+  g x = ...(case thk of xv -> Bin xv Tip Tip)...
 
-For recursive bindings the isse arises if we have:
+So far so good; the argument to Bin (which is strict) is evaluated.
+Now we do float-out. And in doing so we do a reverse binder-swap (see
+Note [Binder-swap during float-out] in SetLevels) thus
 
-  let rec {
-    x = e1 -- e1 mentioning y
-    y = StrictJust x
-  }
+  g x = ...(case thk of xv -> Bin thk Nil Nil)...
 
-We obviously can't wrap the case around the recursive group as `x` isn't in scope there.
-This means if we can't proof that the arguments to the strict fields (in this case `x`)
-are tagged we have to turn the above into:
+The goal of the reverse binder-swap is to allow more floating -- and
+indeed it does! We float the Bin to top level:
 
-  let rec {
-    x = e1 -- e1 mentioning y
-    y = case x of x' -> StrictJust x'
-  }
+  lvl = Bin thk Tip Tip
+  g x = ...(case thk of xv -> lvl)...
 
-But this rarely happens so is not a reason for concern.
+Now you can see that the argument of Bin, namely thk, points to the
+thunk, not to the value as it did before.
+
+In short, although it may be rare, the output of optimisation passes
+cannot guarantee to obey the Strict Field Invariant.
 
 Note [Tag inference passes]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-SPJ posed the good question why we bother having two different pass
-parameterizations for tag inference. After all InferTaggedBinders
-already has put the needed information on the binders.
-
-Indeed we could the transformation described in Note [Strict field invariant]
-as part of the StgToCmm transformation. But it wouldn't work well with the way
-we currently produce Cmm code.
-
-In particular we would have to analyze rhss *before* we can determine
-if they should contain the required code for upholding the strict field
-invariant or if the code should be placed in front of the code of a given
-rhs. This means more dependencies between different parts of codeGen and
-more complexity in general so I decided to implement this as an STG transformation
-instead.
-
-This doesn't actually mean we *need* two different parameterizations. But since
-we already walk the whole AST I figured it would be more efficient to put the
-relevant tag information into the StgApp nodes during this pass as well.
-
-It avoids the awkward situation where codegeneration of the context of a let depends
-on the rhs of the let itself, avoids the need for all binders to be be tuples and
-seemed more efficient.
+Tag inference proceeds in two passes:
+* Start with `GenStgTopBinding Vanilla` just before free variable analysis.
+* Do the first pass which is the actual analysis to get `GenStgTopBinding 'InferTaggedBinders`.
+  At this stage, tag information is only attached to /binders/.
+  This is implemented by `inferTags` in GHC.Stg.InferTags
+* Do a pass over the AST checking if the Strict Field Invariant is upheld
+  at all allocation sites for constructors, and if required rewrite the AST to uphold it.
+  Tag information is also moved from /binders/ to /occurrences/, in `StgApp` nodes during this pass.
+  This is done by `GHC.Stg.InferTags.Rewrite (rewriteTopBinds)` which gives us `GenStgTopBinding InferTagged`
+* Then code generation uses the information in the `StgApp` nodes to skip the thunk check when branching on/evaluating
+  a value. This is done by `cgExpr`/`cgCase` in the backend.
+* Last but not least we also export the tag sigs of top level bindings to allow this optimization
+  to work across module boundries.
 
 Note [TagInfo of functions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -157,7 +181,8 @@ For functions we never make use of the tag info so we have two choices:
 * Treat them as TagDunno
 * Treat them as TagProper (as they *are* tagged with their arity) and be really
   careful to make sure we still enter them when needed.
-I've done the former
+I've done the former for now as it makes little difference in performance and
+makes things a lot simpler.
 
 -}
 
@@ -171,6 +196,13 @@ type OutputableInferPass p = (Outputable (TagEnv p)
                               , Outputable (GenStgExpr p)
                               , Outputable (BinderP p)
                               , Outputable (GenStgRhs p))
+
+-- | This constraint encodes the fact that no matter what pass
+-- we use the Let/Closure extension points are the same as these for
+-- 'InferTaggedBinders.
+type InferExtEq i = ( XLet i ~ XLet 'InferTaggedBinders
+                    , XLetNoEscape i ~ XLetNoEscape 'InferTaggedBinders
+                    , XRhsClosure i ~ XRhsClosure 'InferTaggedBinders)
 
 inferTags :: [GenStgTopBinding 'Vanilla] -> [GenStgTopBinding 'InferTaggedBinders]
 inferTags binds =
@@ -189,34 +221,42 @@ inferTagTopBind env (StgTopLifted bind)
 
 
 -----------------------
-inferTagExpr :: forall p. OutputableInferPass p
+inferTagExpr :: forall p. (OutputableInferPass p, InferExtEq p)
   => TagEnv p -> GenStgExpr p -> (TagInfo, GenStgExpr 'InferTaggedBinders)
-inferTagExpr env (StgApp _ext fun args)
+inferTagExpr env (StgApp fun args)
   = -- pprTrace "inferTagExpr1"
   --     (ppr fun <+> ppr args $$ ppr info $$
   --      text "deadEndInfo:" <> ppr (isDeadEndId fun, idArity fun, length args)
   --     )
-    (info, StgApp noEnterInfo fun args)
+    (info, StgApp fun args)
   where
     !fun_arity = idArity fun
     info | fun_arity == 0 -- Unknown arity
-         = TagDunno
+         = TagDunno -- TODO
 
          | isDeadEndId fun
-         , fun_arity == length args -- The function will actually be entered.
+         , fun_arity == length args -- The function is guaranteed to be entered actually be entered.
          = TagTagged -- See Note [Bottoms functions are TagTagged]
 
-         | Just (TagSig arity res_info) <- tagSigInfo (idInfo fun)
-         , arity == length args  -- Saturated
+         | Just (TagSig res_info) <- tagSigInfo (idInfo fun)
+         , fun_arity == length args  -- Saturated
          = res_info
 
-         | Just (TagSig arity res_info) <- lookupSig env fun
-         , arity == length args  -- Saturated
+         | Just (TagSig res_info) <- lookupSig env fun
+         , fun_arity == length args  -- Saturated
          = res_info
 
          | otherwise
          = --pprTrace "inferAppUnknown" (ppr fun) $
            TagDunno
+-- TODO:
+-- If we have something like:
+--   let x = thunk in
+--   f g = case g of g' -> (# x, g' #)
+-- then we *do* know that g' will be properly tagged,
+-- so we should return TagTagged [TagDunno,TagProper] but currently we infer
+-- TagTagged [TagDunno,TagDunno] because of the unknown arity case in inferTagExpr.
+-- Seems not to matter much but should be changed eventually.
 
 inferTagExpr env (StgConApp con cn args tys)
   = (inferConTag env con args, StgConApp con cn args tys)
@@ -235,16 +275,14 @@ inferTagExpr _ (StgOpApp op args ty)
     (TagDunno, StgOpApp op args ty)
 
 inferTagExpr env (StgLet ext bind body)
-  = (info, StgLet ext' bind' body')
+  = (info, StgLet ext bind' body')
   where
-    ext' = case te_ext env of ExtEqEv -> ext
     (env', bind') = inferTagBind NotTopLevel env bind
     (info, body') = inferTagExpr env' body
 
 inferTagExpr env (StgLetNoEscape ext bind body)
-  = (info, StgLetNoEscape ext' bind' body')
+  = (info, StgLetNoEscape ext bind' body')
   where
-    ext' = case te_ext env of ExtEqEv -> ext
     (env', bind') = inferTagBind NotTopLevel env bind
     (info, body') = inferTagExpr env' body
 
@@ -257,7 +295,7 @@ inferTagExpr in_env (StgCase scrut bndr ty alts)
         mk_bndr :: BinderP p -> TagInfo -> (Id, TagSig)
         mk_bndr tup_bndr tup_info =
             --  pprTrace "mk_ubx_bndr_info" ( ppr bndr <+> ppr info ) $
-            (getBinderId in_env tup_bndr, TagSig 0 tup_info)
+            (getBinderId in_env tup_bndr, TagSig tup_info)
         -- no case binder in alt_env here, unboxed tuple binders are dead after unarise
         alt_env = extendSigEnv in_env bndrs'
         (info, rhs') = inferTagExpr alt_env rhs
@@ -295,7 +333,7 @@ inferTagExpr in_env (StgCase scrut bndr ty alts)
       TagTuple infos -> Just infos
       _ -> Nothing
     (scrut_info, scrut') = inferTagExpr in_env scrut
-    bndr' = (getBinderId in_env bndr, TagSig 0 TagProper)
+    bndr' = (getBinderId in_env bndr, TagSig TagProper)
 
 -- Not used if we have tuple info about the scrutinee
 addAltBndrInfo :: forall p. TagEnv p -> AltCon -> [BinderP p] -> (TagEnv p, [BinderP 'InferTaggedBinders])
@@ -310,7 +348,7 @@ addAltBndrInfo env (DataAlt con) bndrs
     mk_bndr :: (BinderP p -> StrictnessMark -> (Id, TagSig))
     mk_bndr bndr mark
       | isUnliftedType (idType id) || isMarkedStrict mark
-      = (id, TagSig (idArity id) TagProper)
+      = (id, TagSig TagProper)
       | otherwise
       = noSig env bndr
         where
@@ -319,7 +357,7 @@ addAltBndrInfo env (DataAlt con) bndrs
 addAltBndrInfo env _ bndrs = (env, map (noSig env) bndrs)
 
 -----------------------------
-inferTagBind :: OutputableInferPass p
+inferTagBind :: (OutputableInferPass p, InferExtEq p)
   => TopLevelFlag -> TagEnv p -> GenStgBinding p -> (TagEnv p, GenStgBinding 'InferTaggedBinders)
 inferTagBind top in_env (StgNonRec bndr rhs)
   =
@@ -339,29 +377,35 @@ inferTagBind top in_env (StgRec pairs)
   where
     (bndrs, rhss)     = unzip pairs
     in_ids            = map (getBinderId in_env) bndrs
-    init_sigs         = map initSig rhss
+    init_sigs         = map (initSig) $ zip in_ids rhss
     (out_env, pairs') = go in_env init_sigs rhss
 
-    go :: forall q. OutputableInferPass q => TagEnv q -> [TagSig] -> [GenStgRhs q]
+    go :: forall q. (OutputableInferPass q , InferExtEq q) => TagEnv q -> [TagSig] -> [GenStgRhs q]
                  -> (TagSigEnv, [((Id,TagSig), GenStgRhs 'InferTaggedBinders)])
     go go_env in_sigs go_rhss
       --   | pprTrace "go" (ppr in_ids $$ ppr in_sigs $$ ppr out_sigs $$ ppr rhss') False
       --  = undefined
-       | in_sigs == out_sigs = (te_env rhs_env, in_bndrs `zip` rhss')
+       | in_sigs == out_sigs = (te_env rhs_env, out_bndrs `zip` rhss')
        | otherwise     = go env' out_sigs rhss'
        where
+         out_bndrs = map updateBndr in_bndrs -- TODO: Keeps in_ids alive
          in_bndrs = in_ids `zip` in_sigs
          rhs_env = extendSigEnv go_env in_bndrs
-         anaRhs :: Id -> GenStgRhs q -> (TagSig, GenStgRhs 'InferTaggedBinders)
-         anaRhs bnd rhs = inferTagRhs top bnd rhs_env rhs
          (out_sigs, rhss') = unzip (zipWithEqual "inferTagBind" anaRhs in_ids go_rhss)
          env' = makeTagged go_env
 
-initSig :: GenStgRhs p -> TagSig
--- Initial signature for the fixpoint loop
-initSig (StgRhsCon {})                = TagSig 0              TagTagged
-initSig (StgRhsClosure _ _ _ bndrs _) = TagSig (length bndrs) TagTagged
+         anaRhs :: Id -> GenStgRhs q -> (TagSig, GenStgRhs 'InferTaggedBinders)
+         anaRhs bnd rhs = inferTagRhs top bnd rhs_env rhs
 
+         updateBndr :: (Id,TagSig) -> (Id,TagSig)
+         updateBndr (v,sig) = (setIdTagSig v sig, sig)
+
+initSig :: forall p. (Id, GenStgRhs p) -> TagSig
+-- Initial signature for the fixpoint loop
+initSig (_bndr, StgRhsCon {})               = TagSig TagTagged
+initSig (bndr, StgRhsClosure _ _ _ _ _) =
+  fromMaybe defaultSig (idTagSig_maybe bndr)
+  where defaultSig = (TagSig TagTagged)
 
 {- Note [Bottoms functions are TagTagged]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -390,7 +434,7 @@ up doesn't matter. So we might as well give it TagTagged.
 
 -----------------------------
 inferTagRhs :: forall p.
-     OutputableInferPass p
+     (OutputableInferPass p, InferExtEq p)
   => TopLevelFlag -- ^
   -> Id -- ^ Id we are binding to.
   -> TagEnv p -- ^
@@ -399,55 +443,101 @@ inferTagRhs :: forall p.
 inferTagRhs _top bnd_id in_env (StgRhsClosure ext cc upd bndrs body)
   | isDeadEndId bnd_id
   -- TODO: Bottom functions are TagTagged
-  = (TagSig arity TagTagged, StgRhsClosure ext' cc upd out_bndrs body')
+  = (TagSig TagTagged, StgRhsClosure ext cc upd out_bndrs body')
   | otherwise
   = --pprTrace "inferTagRhsClosure" (ppr (_top, _grp_ids, env,info')) $
-    (TagSig arity info', StgRhsClosure ext' cc upd out_bndrs body')
+    (TagSig info', StgRhsClosure ext cc upd out_bndrs body')
   where
     out_bndrs
       | Just marks <- idCbvMarks_maybe bnd_id
       -- Sometimes an we eta-expand foo with additional arguments after ww, and we also trim
       -- the list of marks to the last strict entry. So we can conservatively
       -- assume these are not strict
-      = zipWith (mkArgSig) bndrs (marks ++ repeat NotMarkedStrict)
+      = zipWith (mkArgSig) bndrs (marks ++ repeat NotMarkedCbv)
       | otherwise = map (noSig env') bndrs :: [(Id,TagSig)]
 
     env' = extendSigEnv in_env out_bndrs
-    ext' = case te_ext env' of ExtEqEv -> ext
     (info, body') = inferTagExpr env' body
-    arity = length bndrs
     info'
-      | arity == 0
+      -- It's a thunk
+      | null bndrs
       = TagDunno
       -- TODO: We could preserve tuple fields for thunks
       -- as well.
 
       | otherwise  = info
 
-    mkArgSig :: BinderP p -> StrictnessMark -> (Id,TagSig)
+    mkArgSig :: BinderP p -> CbvMark -> (Id,TagSig)
     mkArgSig bndp mark =
       let id = getBinderId in_env bndp
           tag = case mark of
-            MarkedStrict -> TagProper
+            MarkedCbv -> TagProper
             _
               | isUnliftedType (idType id) -> TagProper
               | otherwise -> TagDunno
-      in (id, TagSig (idArity id) tag)
+      in (id, TagSig tag)
 
 inferTagRhs _top _ env _rhs@(StgRhsCon cc con cn ticks args)
--- Top level constructors, which have untagged arguments to strict fields
--- become thunks. Same goes for rhs which are part of a recursive group.
--- We encode this by giving changing RhsCon nodes the info TagDunno
+-- Constructors, which have untagged arguments to strict fields
+-- become thunks. We encode this by giving changing RhsCon nodes the info TagDunno
   = --pprTrace "inferTagRhsCon" (ppr grp_ids) $
-    (TagSig 0 (inferConTag env con args), StgRhsCon cc con cn ticks args)
+    (TagSig (inferConTag env con args), StgRhsCon cc con cn ticks args)
 
+{- Note [Constructor TagSigs]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+@inferConTag@ will infer the proper tag signature for a binding who's RHS is a constructor
+or a StgConApp expression.
+Usually these will simply be TagProper. But there are exceptions.
+If any of the fields in the constructor are strict, but any argument to these
+fields is not tagged then we will have to case on the argument before storing
+in the constructor. Which means for let bindings the RHS turns into a thunk
+which obviously is no longer properly tagged.
+For example we might start with:
+
+    let x<TagDunno> = f ...
+    let c<TagProper> = StrictPair x True
+
+But we know during the rewrite stage x will need to be evaluated in the RHS
+of `c` so we will infer:
+
+    let x<TagDunno> = f ...
+    let c<TagDunno> = StrictPair x True
+
+Which in the rewrite stage will then be rewritten into:
+
+    let x<TagDunno> = f ...
+    let c<TagDunno> = case x of x' -> StrictPair x' True
+
+The other exception is unboxed tuples. These will get a TagTuple
+signature with a list of TagInfo about their individual binders
+as argument. As example:
+
+    let c<TagProper> = True
+    let x<TagDunno> = ...
+    let f<?> z = case z of z'<TagProper> -> (# c, x #)
+
+Here we will infer for f the Signature <TagTuple[TagProper,TagDunno]>.
+This information will be used if we scrutinze a saturated application of
+`f` in order to determine the taggedness of the result.
+That is for `case f x of (# r1,r2 #) -> rhs` we can infer
+r1<TagProper> and r2<TagDunno> which allows us to skip all tag checks on `r1`
+in `rhs`.
+
+Things get a bit more complicated with nesting:
+
+    let closeFd<TagTuple[...]> = ...
+    let f x = ...
+        case x of
+          _ -> Solo# closeFd
+
+The "natural" signature for the Solo# branch in `f` would be <TagTuple[TagTuple[...]]>.
+But we flatten this out to <TagTuple[TagDunno]> for the time being as it improves compile
+time and there doesn't seem to huge benefit to doing differently.  -}
 inferConTag :: TagEnv p -> DataCon -> [StgArg] -> TagInfo
 inferConTag env con args
   | isUnboxedTupleDataCon con
   = TagTuple $ map (flatten_arg_tag . lookupInfo env) args
-
-  | otherwise
-  =
+  | otherwise =
     -- pprTrace "inferConTag"
     --   ( text "con:" <> ppr con $$
     --     text "args:" <> ppr args $$
@@ -455,7 +545,6 @@ inferConTag env con args
     --     text "arg_info:" <> ppr (map (lookupInfo env) args) $$
     --     text "info:" <> ppr info) $
     info
-
   where
     info = if any arg_needs_eval strictArgs then TagDunno else TagProper
     strictArgs = zipEqual "inferTagRhs" args (dataConRuntimeRepStrictness con) :: ([(StgArg, StrictnessMark)])
@@ -463,14 +552,12 @@ inferConTag env con args
       -- lazy args
       | not (isMarkedStrict strict) = False
       | tag <- (lookupInfo env arg)
-      -- banged args need to be strict, or require eval
+      -- banged args need to be tagged, or require eval
       = not (isTaggedInfo tag)
 
     flatten_arg_tag (TagTagged) = TagProper
     flatten_arg_tag (TagProper ) = TagProper
-    flatten_arg_tag arg@(TagTuple _) =
-      pprPanic "inferConTag: Impossible - should have been unarised"
-        (ppr con <+> ppr args $$ ppr arg $$ ppr env)
+    flatten_arg_tag (TagTuple _) = TagDunno -- See Note [Constructor TagSigs]
     flatten_arg_tag (TagDunno) = TagDunno
 
 
@@ -484,7 +571,7 @@ collectExportInfo binds =
     collect (StgTopLifted bnd) =
       case bnd of
         StgNonRec (id,sig) _rhs
-          | TagSig _ TagDunno <- sig -> []
+          | TagSig TagDunno <- sig -> []
           | otherwise -> [(idName id,sig)]
         StgRec bnds -> collectRec bnds
 
@@ -493,6 +580,6 @@ collectExportInfo binds =
     collectRec (bnd:bnds)
       | (p,_rhs)  <- bnd
       , (id,sig) <- p
-      , TagSig _ TagDunno <- sig
+      , TagSig TagDunno <- sig
       = (idName id,sig) : collectRec bnds
       | otherwise = collectRec bnds

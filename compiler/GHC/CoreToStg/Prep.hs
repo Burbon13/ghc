@@ -1437,8 +1437,8 @@ maybeSaturate fn expr n_args
   | hasNoBinding fn        -- There's no binding
   = return sat_expr
 
-  -- TODO: I suppose we we don't need to if all strict marks
-  -- are covered by an argument.
+  -- Potential improvement: We don't need to eta expand as long as all strict marks
+  -- are covered by an argument. But it's simpler to to just always do it for consistency.
   | idCbvMarkArity fn > n_args
   , not (isJoinId fn)
   = return sat_expr

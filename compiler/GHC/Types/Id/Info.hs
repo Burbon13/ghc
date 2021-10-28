@@ -79,6 +79,8 @@ module GHC.Types.Id.Info (
         LambdaFormInfo,
         lfInfo, setLFInfo, setTagSig,
 
+        tagSig,
+
         -- ** Tick-box Info
         TickBoxOp(..), TickBoxId,
 
@@ -173,14 +175,49 @@ data IdDetails
   | CoVarId    -- ^ A coercion variable
                -- This only covers /un-lifted/ coercions, of type
                -- (t1 ~# t2) or (t1 ~R# t2), not their lifted variants
-  | JoinId JoinArity (Maybe [StrictnessMark])
+  | JoinId JoinArity (Maybe [CbvMark])
         -- ^ An 'Id' for a join point taking n arguments
         -- Note [Join points] in "GHC.Core"
-  | StrictWorkerId [StrictnessMark]
+  | StrictWorkerId [CbvMark]
         -- ^ An 'Id' for a worker function, which expects some arguments to be
-        -- passed both evaluated and tagged. TODO: Write and reference Note
+        -- passed both evaluated and tagged.
+        -- See Note [Strict Worker Ids]
+        -- See Note [Tag Inference]
 
+{- Note [Strict Worker Ids]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+StrictWorkerIds essentially constrain the calling conventien for the given Id.
+They require arguments marked as tagged to be passed properly evaluate+*tagged*.
 
+While we were always able to express the fact that an argument is evaluated
+via attaching a evaldUnfolding to the functions arguments there used to be
+no way to express that an lifted argument is already properly tagged inside the RHS.
+This means when branching on a value the RHS always needed to perform
+a tag check to ensure the argument wasn't an indirection (the evaldUnfolding
+already ruling out thunks).
+
+StrictWorkerIds give us this additional expressiveness which we use to improve
+runtime. This is all part of the TagInference work. See also Note [Tag Inference].
+
+What we do is:
+* If we think a function might benefit from passing certain arguments unlifted
+  for performance reasons we attach an evaldUnfolding to these arguments.
+* Potentially earlier, but at latest during Tidy VanillaIds with arguments that
+  have evaldUnfoldings are turned into StrictWorkerIds.
+* During CorePrep calls to StrictWorkerIds are eta expanded.
+* During Stg CodeGen:
+  * When we call a binding that is a StrictWorkerId:
+    * We check if all arguments marked are already tagged.
+    * If they aren't we will wrap the call in case expressions which will evaluate+tag
+      these arguments before jumping to the function.
+* During Cmm codeGen:
+  * When generating code for the RHS of a StrictWorker binding
+    we omit tag checks when using arguments marked as tagged.
+
+We primarily use this for workers where we mark strictly demanded arguments
+and arguments representing strict fields as call-by-value.
+
+-}
 
 -- | Recursive Selector Parent
 data RecSelParent = RecSelData TyCon | RecSelPatSyn PatSyn deriving Eq
@@ -204,7 +241,7 @@ isCoVarDetails :: IdDetails -> Bool
 isCoVarDetails CoVarId = True
 isCoVarDetails _       = False
 
-isJoinIdDetails_maybe :: IdDetails -> Maybe (JoinArity, (Maybe [StrictnessMark]))
+isJoinIdDetails_maybe :: IdDetails -> Maybe (JoinArity, (Maybe [CbvMark]))
 isJoinIdDetails_maybe (JoinId join_arity marks) = Just (join_arity, marks)
 isJoinIdDetails_maybe _                   = Nothing
 

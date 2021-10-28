@@ -193,7 +193,7 @@ lintStgExpr :: (OutputablePass a, BinderP a ~ Id) => GenStgExpr a -> LintM ()
 
 lintStgExpr (StgLit _) = return ()
 
-lintStgExpr e@(StgApp _ fun args) = do
+lintStgExpr e@(StgApp fun args) = do
     lintStgVar fun
     mapM_ lintStgArg args
 
@@ -207,9 +207,6 @@ lintStgExpr e@(StgApp _ fun args) = do
           text "arity" <> ppr (idArity fun) $$
           text "join_arity" <> ppr (isJoinId_maybe fun))
         else return ()
-
-
-
 
 lintStgExpr app@(StgConApp con _n args _arg_tys) = do
     -- unboxed sums should vanish during unarise

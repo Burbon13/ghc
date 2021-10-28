@@ -56,7 +56,7 @@ module GHC.Core.DataCon (
         isUnboxedSumDataCon,
         isVanillaDataCon, isNewDataCon, classDataCon, dataConCannotMatch,
         dataConUserTyVarsArePermuted,
-        isBanged, isMarkedStrict, eqHsBang, isSrcStrict, isSrcUnpacked,
+        isBanged, isMarkedStrict, cbvFromStrictMark, eqHsBang, isSrcStrict, isSrcUnpacked,
         specialPromotedDc,
 
         -- ** Promotion related functions
@@ -974,6 +974,11 @@ isSrcUnpacked _ = False
 isMarkedStrict :: StrictnessMark -> Bool
 isMarkedStrict NotMarkedStrict = False
 isMarkedStrict _               = True   -- All others are strict
+
+cbvFromStrictMark :: StrictnessMark -> CbvMark
+cbvFromStrictMark NotMarkedStrict = NotMarkedCbv
+cbvFromStrictMark MarkedStrict = MarkedCbv
+
 
 {- *********************************************************************
 *                                                                      *

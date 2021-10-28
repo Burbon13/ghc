@@ -75,6 +75,7 @@ import GHC.Serialized   ( deserializeWithData )
 import Control.Monad    ( zipWithM )
 import Data.List (nubBy, sortBy, partition, dropWhileEnd, mapAccumL )
 import Data.Ord( comparing )
+import qualified GHC.Plugins as RHS
 
 {-
 -----------------------------------------------------
@@ -128,8 +129,8 @@ In Core, by the time we've w/wd (f is strict in i) we get
                                 False -> I# i#
                                 True  -> f (i# *# 2#) n
 
-and n is evaluated elsewhere in the body of f, so we can play the same
 At the call to f, we see that the argument, n is known to be (I# n#),
+and n is evaluated elsewhere in the body of f, so we can play the same
 trick as above.
 
 
@@ -628,18 +629,43 @@ that we have ForceSpecConstr, this NoSpecConstr is probably redundant.
 
 Note [SpecConstr and evaluated unfoldings]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-GHC currently attaches OtherCon[] unfoldings
-to bindings it knows to be evaluated. When SpecConstr
-specializes for *values* we obviously can tell if the
-argument we specialze for is evaluated or not, and should
-set unfoldings for the argument binders if they are.
-I rectified this as part of the tag inference work.
+SpecConstr will attach evaldUnfolding unfoldings to function
+arguments representing things that should be fully evaluated
+by the time we execute the RHS.
 
-Separately but similarly we set OtherCon[] for arguments
-with a strict demand. For these if the calling context does
-not pass an value tag inference will insert a seq at the call
-site. The end result being that we can pass arguments to the
-specialized function unlifted.
+This primarily concerns strict fields. To give an example in the
+containers package we have a merge function with this specialization:
+
+  "SC:$wmerge01" [2]
+      forall (sc_s5lX :: ghc-prim:GHC.Prim.Int#)
+              (sc_s5lY :: ghc-prim:GHC.Prim.Int#)
+              (sc_s5lZ
+                :: IntMap a_s4UX
+                Unf=OtherCon [])
+              (sc_s5m0
+                :: IntMap a_s4UX
+                Unf=OtherCon [])
+              (sc_s5lW :: ghc-prim:GHC.Prim.Int#)
+              (sc_s5lU :: ghc-prim:GHC.Prim.Int#)
+              (sc_s5lV :: a_s4UX).
+        $wmerge0_s4UK (Data.IntMap.Internal.Tip @a_s4UX sc_s5lU sc_s5lV)
+                      (ghc-prim:GHC.Types.I# sc_s5lW)
+                      (Data.IntMap.Internal.Bin
+                          @a_s4UX sc_s5lX sc_s5lY sc_s5lZ sc_s5m0)
+        = $s$wmerge0_s5m2
+            sc_s5lX sc_s5lY sc_s5lZ sc_s5m0 sc_s5lW sc_s5lU sc_s5lV]
+
+We give sc_s5lZ and sc_s5m0 a evaluated unfolding since they come out of
+strict field fields in the Bin constructor.
+This is especially important since tag inference can then use this
+information on the argument binders to adjust the calling convention of
+`$wmerge0_s4UK` to enforce arguments being passed fully evaluated+tagged.
+See Note [Tag inference], Note [Strict Worker Ids] for more information on
+how we can tage advantage of this.
+
+We also set evaldUnfolding for strictly demanded arguments of specialized
+functions. This means they too will be passed call-by-value. Which generally
+is desireable. Again see Note [Tag inference].
 
 -----------------------------------------------------
                 Stuff not yet handled
@@ -1845,7 +1871,7 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
     --   | isId v
     --   , exprIsHNF p
     --   , isBoxedRuntimeRep (idType v) -- No point to attach OtherCon unfoldings to e.g. I#
-    --   = setStrUnfolding v MarkedStrict : set_arg_unf vs ps
+    --   = setStrUnfolding v MarkedCbv : set_arg_unf vs ps
     --   | otherwise
     --   = v : set_arg_unf vs ps
     -- set_arg_unf [] _pats = [] -- Oversatured call
@@ -2293,7 +2319,7 @@ argToPat :: ScEnv
          -> ValueEnv                    -- ValueEnv at the call site
          -> CoreArg                     -- A call arg (or component thereof)
          -> ArgOcc
-         -> StrictnessMark            -- When recursing tells us if the current might be strict
+         -> StrictnessMark              -- When recursing tells us if the current might be strict
          -> UniqSM (Bool, CoreArg)
 
 -- Returns (interesting, pat),
@@ -2469,14 +2495,14 @@ argToPat1 env in_scope val_env (Var v) arg_occ _arg_str
 argToPat1 _env _in_scope _val_env arg _arg_occ arg_str
   = wildCardPat (exprType arg) arg_str
 
--- We want the given id to be passed call-by-value if it's MarkedStrict.
+-- We want the given id to be passed call-by-value if it's MarkedCbv.
 -- For some, but not all ids this can be achieved by giving them an OtherCon unfolding.
 -- Doesn't touch existing value unfoldings.
 setStrUnfolding :: Id -> StrictnessMark  -> Id
 -- setStrUnfolding id str = id
 setStrUnfolding id str
   -- | pprTrace "setStrUnfolding"
-  --   (ppr id <+> ppr (isMarkedStrict str) $$
+  --   (ppr id <+> ppr (isMarkedCbv str) $$
   --    ppr (idType id) $$
   --    text "boxed:" <> ppr (isBoxedType (idType id)) $$
   --    text "unlifted:" <> ppr (isUnliftedType (idType id))

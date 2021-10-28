@@ -76,7 +76,8 @@ In order to avoid code duplication I've added the `FVPass i o` constraint.
 The principle is simple: We don't modify the input except for replacing
 XRhsClosure extension points with DIdSet.
 
-FVPass encodes this fact in the form of a constraint.
+FVPass encodes this fact in the form of a constraint. The alternative is to
+force the FV pass to have fixed input/output passes.
 -}
 
 type FVPass i o = (BinderP i ~ Id,
@@ -85,8 +86,7 @@ type FVPass i o = (BinderP i ~ Id,
                    -- The RhsClosure extension will contain the free variables afterwards
                    XRhsClosure o ~ DIdSet,
                    XLet i ~ XLet o,
-                   XLetNoEscape i ~ XLetNoEscape o,
-                   XStgApp i ~ XStgApp o
+                   XLetNoEscape i ~ XLetNoEscape o
                   )
 
 emptyEnv :: Env
@@ -153,8 +153,8 @@ binding env body_fv (StgRec pairs) = (StgRec pairs', fvs)
 expr :: FVPass i o => Env -> GenStgExpr i -> (GenStgExpr o, DIdSet)
 expr env = go
   where
-    go (StgApp ext occ as)
-      = (StgApp ext occ as, unionDVarSet (args env as) (mkFreeVarSet env [occ]))
+    go (StgApp occ as)
+      = (StgApp occ as, unionDVarSet (args env as) (mkFreeVarSet env [occ]))
     go (StgLit lit) = (StgLit lit, emptyDVarSet)
     go (StgConApp dc n as tys) = (StgConApp dc n as tys, args env as)
     go (StgOpApp op as ty) = (StgOpApp op as ty, args env as)

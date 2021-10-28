@@ -48,7 +48,6 @@ import GHC.Types.Unique ( hasKey )
 import GHC.Iface.Type
 import GHC.Iface.Recomp.Binary
 import GHC.Core( IsOrphan, isOrphan )
-import GHC.Core.DataCon( StrictnessMark )
 import GHC.Types.Demand
 import GHC.Types.Cpr
 import GHC.Core.Class
@@ -383,7 +382,7 @@ data IfaceUnfolding
 
 data IfaceIdDetails
   = IfVanillaId
-  | IfStrictWorkerId [StrictnessMark]
+  | IfStrictWorkerId [CbvMark]
   | IfRecSelId (Either IfaceTyCon IfaceDecl) Bool
   | IfDFunId
 

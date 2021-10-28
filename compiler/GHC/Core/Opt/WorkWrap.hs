@@ -11,7 +11,6 @@ import GHC.Prelude
 
 import GHC.Driver.Session
 
-import GHC.Core.DataCon
 import GHC.Core.Opt.Arity  ( manifestArity )
 import GHC.Core
 import GHC.Core.Unfold.Make
@@ -542,7 +541,7 @@ tryWW ww_opts is_rec fn_id rhs
   = return [ (new_fn_id, rhs ) ]
 
   | is_fun && is_eta_exp
-  = splitFun ww_opts new_fn_id fn_info rhs
+  = splitFun ww_opts new_fn_id rhs
 
   -- See Note [Thunk splitting]
   | isNonRec is_rec, is_thunk
@@ -709,8 +708,8 @@ by LitRubbish (see Note [Drop absent bindings]) so there is no great harm.
 
 
 ---------------------
-splitFun :: WwOpts -> Id -> IdInfo -> CoreExpr -> UniqSM [(Id, CoreExpr)]
-splitFun ww_opts fn_id fn_info rhs
+splitFun :: WwOpts -> Id -> CoreExpr -> UniqSM [(Id, CoreExpr)]
+splitFun ww_opts fn_id rhs
   = warnPprTrace (not (wrap_dmds `lengthIs` (arityInfo fn_info)))
                  (ppr fn_id <+> (ppr wrap_dmds $$ ppr cpr)) $
     do { mb_stuff <- mkWwBodies ww_opts fn_id arg_vars (exprType body) wrap_dmds cpr
@@ -749,10 +748,10 @@ splitFun ww_opts fn_id fn_info rhs
 
 mkWWBindPair :: WwOpts -> Id -> IdInfo
              -> [Var] -> CoreExpr -> Unique -> Divergence
-             -> ([Demand], [StrictnessMark], JoinArity, Id -> CoreExpr, Expr CoreBndr -> CoreExpr)
+             -> ([Demand], [CbvMark], JoinArity, Id -> CoreExpr, Expr CoreBndr -> CoreExpr)
              -> [(Id, CoreExpr)]
 mkWWBindPair ww_opts fn_id fn_info fn_args fn_body work_uniq div
-             (work_demands, cbv_marks :: [StrictnessMark], join_arity, wrap_fn, work_fn)
+             (work_demands, cbv_marks :: [CbvMark], join_arity, wrap_fn, work_fn)
   = -- pprTrace "mkWW" (ppr work_id) $
     [(work_id, work_rhs), (wrap_id, wrap_rhs)]
      -- Worker first, because wrapper mentions it
@@ -984,7 +983,7 @@ splitThunk ww_opts is_rec x rhs
   = assert (not (isJoinId x)) $
     do { let x' = localiseId x -- See comment above
        ; (useful,_, _cbvs, wrap_fn, fn_arg)
-           <- mkWWstr_one ww_opts x' NotMarkedStrict
+           <- mkWWstr_one ww_opts x' NotMarkedCbv
        ; let res = [ (x, Let (NonRec x' rhs) (wrap_fn fn_arg)) ]
        ; if useful then assertPpr (isNonRec is_rec) (ppr x) -- The thunk must be non-recursive
                    return res

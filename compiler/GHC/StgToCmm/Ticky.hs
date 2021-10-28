@@ -283,29 +283,38 @@ emitTickyCounter cloType name args
 {- Note [TagSkip ticky counters]
    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+These counters keep track how often we execute code where we
+would have performed a tag check if we hadn't run tag inference.
+
 If we have some code of the form:
     case v[tagged] of ...
-and we want to record the skip of v we have to
-emit a new StgEntCounter for each such case statement.
+and we want to record how often we avoid a tag check on v
+through tag inference we have to emit a new StgEntCounter for
+each such case statement in order to record how often it's executed.
 
 In theory we could emit one per *binding*. But then we
 would have to either keep track of the bindings which
-already have a StgEntCounter associated with them or
-preallocate such a structure for each binding in the code.
+already have a StgEntCounter associated with them in the
+code gen state or preallocate such a structure for each binding
+in the code unconditionally (since ticky-code can call non-ticky code)
 
-The first make the compiler slower, even when ticky is not
-used (big no no). The later is fairly complex.
+The first makes the compiler slower, even when ticky is not
+used (a big no no). The later is fairly complex but increases code size
+unconditionally.
 
-Instead we emit a new StgEntCounter for each such case we
-come across. We use the fields as follows:
+So instead we emit a new StgEntCounter for each use site of a binding
+where we infered a tag to be present. And increment the counter whenever
+this use site is executed.
+
+We use the fields as follows:
 
 entry_count: Entries avoided.
 str:       : Name of the id.
 
 We use emitTickyCounterTag to emit the counter.
 
-Unlike the closure counters each site has it's own counter.
-So there is no need to keep track of the closure/case we are
+Unlike the closure counters each *use* site of v has it's own
+counter. So there is no need to keep track of the closure/case we are
 in.
 
 We also have to pass a unique for the counter. An Id might be

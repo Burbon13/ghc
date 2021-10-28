@@ -17,7 +17,6 @@ import GHC.Prelude
 
 import GHC.Core
 import GHC.Core.Type
-import GHC.Core.DataCon
 
 import GHC.Core.Seq ( seqUnfolding )
 import GHC.Types.Id
@@ -34,6 +33,7 @@ import GHC.Types.Tickish
 import GHC.Data.Maybe
 import GHC.Utils.Misc
 import Data.List (mapAccumL)
+import GHC.Types.Basic (CbvMark (MarkedCbv, NotMarkedCbv), isMarkedCbv)
 
 {-
 ************************************************************************
@@ -128,12 +128,12 @@ tidyCbvInfo id rhs =
       let ty = idType id
       in not (isStateType ty) && (isUnboxedTupleType ty || isUnboxedSumType ty)
     -- Only covered actually strict arguments.
-    mkCbvMarks :: [Id] -> [StrictnessMark]
-    mkCbvMarks = reverse . dropWhile (not . isMarkedStrict) .  reverse . map mkMark
+    mkCbvMarks :: [Id] -> [CbvMark]
+    mkCbvMarks = reverse . dropWhile (not . isMarkedCbv) .  reverse . map mkMark
       where
         mkMark arg = if isEvaldUnfolding (idUnfolding arg) && (not $ isUnliftedType (idType arg))
-          then MarkedStrict
-          else NotMarkedStrict
+          then MarkedCbv
+          else NotMarkedCbv
 
 ------------  Expressions  --------------
 tidyExpr :: TidyEnv -> CoreExpr -> CoreExpr

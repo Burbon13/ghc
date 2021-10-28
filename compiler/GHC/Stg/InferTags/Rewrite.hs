@@ -34,7 +34,7 @@ import GHC.Core.Type
 import GHC.StgToCmm.Types
 
 import GHC.Stg.Utils
-import GHC.Stg.Syntax as StgSyn hiding (AlwaysEnter)
+import GHC.Stg.Syntax as StgSyn
 
 import GHC.Data.Maybe
 import GHC.Utils.Panic
@@ -48,7 +48,7 @@ import GHC.Stg.InferTags.Types
 
 import Control.Monad
 import Data.Coerce
-
+import GHC.Types.Basic (CbvMark (NotMarkedCbv, MarkedCbv), isMarkedCbv)
 
 -- import GHC.Utils.Trace
 -- import GHC.Driver.Ppr
@@ -186,12 +186,12 @@ isTagged v = do
                 !s <- getMap
                 let !sig = lookupWithDefaultUFM s (pprPanic "unknown Id:" (ppr v)) v
                 return $ case sig of
-                    TagSig _arity info ->
+                    TagSig info ->
                         case info of
                             TagDunno -> False
                             TagProper -> True
                             TagTagged -> True
-                            TagTuple _ -> True -- Consider unboxed tuples tagged
+                            TagTuple _ -> True -- Consider unboxed tuples tagged, should't make a difference though.
         False -- Imported
             | Just con <- (isDataConWorkId_maybe v)
             , isNullaryRepDataCon con
@@ -366,39 +366,41 @@ rewriteConApp (StgConApp con cn args tys) = do
 
 rewriteConApp _ = panic "Impossible"
 
+-- Special case: `case x of`
 rewriteApp :: IsScrut -> InferStgExpr -> RM TgStgExpr
-rewriteApp True (StgApp _nodeId f args)
-    -- | pprTrace "rewriteAppScrut" (ppr f <+> ppr args) False
-    -- = undefined
-    | null args = do
-        tagInfo <- isTagged f
-        let !enter = (extInfo $ tagInfo)
-        return $! StgApp enter f args
+rewriteApp True (StgApp f []) = do
+    -- pprTraceM "rewriteAppScrut" (ppr f) False
+    f_tagged <- isTagged f
+    -- let !enter = (extInfo $ tagInfo)
+    let f' = if f_tagged
+                then setIdTagSig f (TagSig TagProper)
+                else f
+    return $! StgApp f' []
   where
-    extInfo True        = StgSyn.NoEnter
-    extInfo False       = StgSyn.MayEnter
-rewriteApp _ (StgApp _nodeId f args)
+    -- extInfo True        = StgSyn.NoEnter
+    -- extInfo False       = StgSyn.MayEnter
+rewriteApp _ (StgApp f args)
     -- | pprTrace "rewriteAppOther" (ppr f <+> ppr args) False
     -- = undefined
     | Just marks <- idCbvMarks_maybe f
     -- , pprTrace "marks" (ppr f $$ ppr marks) True
     -- , length marks <= length args
     , assert (length marks <= length args) True
-    , any isMarkedStrict marks
+    , any isMarkedCbv marks
     = unliftArg marks
 
     where
       unliftArg marks = do
         argTags <- mapM isArgTagged args
-        let argInfo = zipWith3 ((,,)) args (marks++repeat NotMarkedStrict)  argTags :: [(StgArg, StrictnessMark, Bool)]
+        let argInfo = zipWith3 ((,,)) args (marks++repeat NotMarkedCbv)  argTags :: [(StgArg, CbvMark, Bool)]
 
             -- untagged cbv argument positions
-            cbvArgInfo = filter (\x -> sndOf3 x == MarkedStrict && thdOf3 x == False) argInfo
+            cbvArgInfo = filter (\x -> sndOf3 x == MarkedCbv && thdOf3 x == False) argInfo
             cbvArgIds = [x | StgVarArg x <- map fstOf3 cbvArgInfo] :: [Id]
-        mkSeqs args cbvArgIds (\cbv_args -> StgApp MayEnter f cbv_args)
+        mkSeqs args cbvArgIds (\cbv_args -> StgApp f cbv_args)
 
 
-rewriteApp _ (StgApp _ f args) = return $ StgApp MayEnter f args
+rewriteApp _ (StgApp f args) = return $ StgApp f args
 rewriteApp _ _ = panic "Impossible"
 
 
@@ -409,7 +411,7 @@ mkSeq id bndr !expr =
     -- pprTrace "mkSeq" (ppr (id,bndr)) $
     let altTy = mkStgAltTypeFromStgAlts bndr [(DEFAULT, [], panic "Not used")]
     in
-    StgCase (StgApp MayEnter id []) bndr altTy [(DEFAULT, [], expr)]
+    StgCase (StgApp id []) bndr altTy [(DEFAULT, [], expr)]
 
 -- Create a ConApp which is guaranteed to evaluate the given ids.
 {-# INLINE mkSeqs #-} -- We inline to avoid allocating mkExpr

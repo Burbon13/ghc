@@ -18,8 +18,6 @@ import GHC.Prelude hiding ((<*>))
 import GHC.Driver.Session
 
 import GHC.Core          ( AltCon(..) )
-import GHC.Core.DataCon ( isMarkedStrict )
-import GHC.Core.Type
 import GHC.Runtime.Heap.Layout
 import GHC.Unit.Module
 
@@ -103,7 +101,7 @@ cgTopRhsClosure platform rec id ccs upd_flag args body =
   -- concurrent/should_run/4030 fails, for instance.
   --
   gen_code _ closure_label
-    | StgApp _ext f [] <- body, null args, isNonRec rec
+    | StgApp f [] <- body, null args, isNonRec rec
     = do
          cg_info <- getCgIdInfo f
          emitDataCon closure_label indStaticInfoTable ccs [unLit (idInfoToAmode cg_info)]
@@ -223,21 +221,10 @@ cgRhs id (StgRhsCon cc con mn _ts args)
 
 {- See Note [GC recovery] in "GHC.StgToCmm.Closure" -}
 cgRhs id (StgRhsClosure fvs cc upd_flag args body)
-  = do profile <- getProfile
-       dflags <- getDynFlags
-       when (gopt Opt_DoTagInferenceChecks dflags) $ do
-        let marks = idCbvMarks_maybe id
-        case marks of
-          Nothing -> return ()
-          Just marks -> do
-            let cbv_args = filter (isLiftedRuntimeRep . idType) $ filterByList (map isMarkedStrict marks) args
-            arg_infos <- mapM getCgIdInfo cbv_args
-            let arg_cmms = map idInfoToAmode arg_infos
-            zipWithM_ emitTagAssertion (map (showPprUnsafe . ppr) args) (arg_cmms)
-
-
-            return ()
-       mkRhsClosure profile id cc (nonVoidIds (dVarSetElems fvs)) upd_flag args body
+  = do
+    checkFunctionArgTags (text "TagCheck Failed: Rhs of" <> ppr id) id args
+    profile <- getProfile
+    mkRhsClosure profile id cc (nonVoidIds (dVarSetElems fvs)) upd_flag args body
 
 
 ------------------------------------------------------------------------
@@ -293,11 +280,11 @@ mkRhsClosure    profile bndr _cc
                 []                      -- A thunk
                 expr
   | let strip = stripStgTicksTopE (not . tickishIsCode)
-  , StgCase (StgApp _ext scrutinee [{-no args-}])
+  , StgCase (StgApp scrutinee [{-no args-}])
          _   -- ignore bndr
          (AlgAlt _)
          [(DataAlt _, params, sel_expr)] <- strip expr
-  , StgApp _ext selectee [{-no args-}] <- strip sel_expr
+  , StgApp selectee [{-no args-}] <- strip sel_expr
   , the_fv == scrutinee                -- Scrutinee is the only free variable
 
   , let (_, _, params_w_offsets) = mkVirtConstrOffsets profile (addIdReps (assertNonVoidIds params))
@@ -324,7 +311,7 @@ mkRhsClosure    profile bndr _cc
                 fvs
                 upd_flag
                 []                      -- No args; a thunk
-                (StgApp _ext fun_id args)
+                (StgApp fun_id args)
 
   -- We are looking for an "ApThunk"; see data con ApThunk in GHC.StgToCmm.Closure
   -- of form (x1 x2 .... xn), where all the xi are locals (not top-level)
@@ -346,7 +333,7 @@ mkRhsClosure    profile bndr _cc
   -- because then, if f is a worker, we want to emit checks for strict
   -- args
   -- , case idCbvMarks_maybe fun_id of
-  --     Just marks -> all (== NotMarkedStrict) marks
+  --     Just marks -> all (== NotMarkedCbv) marks
   --     Nothing -> True
 
           -- Ha! an Ap thunk
@@ -545,9 +532,7 @@ closureCodeBody top_lvl bndr cl_info cc args@(arg0:_) body fv_details
                 -- Load free vars out of closure *after*
                 -- heap check, to reduce live vars over check
                 ; when node_points $ load_fvs node lf_info fv_bindings
-                ; dflags <- getDynFlags
-                ; when (gopt Opt_DoTagInferenceChecks dflags) $
-                    emitArgTagCheck bndr (map fromNonVoid nv_args)
+                ; checkFunctionArgTags (text "TagCheck failed - Argument to local function:" <> ppr bndr) bndr (map fromNonVoid nv_args)
                 ; void $ cgExpr body
                 }}}
 

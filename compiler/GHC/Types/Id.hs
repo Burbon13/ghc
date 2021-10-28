@@ -122,7 +122,7 @@ module GHC.Types.Id (
         idDmdSig,
         idCprSig,
 
-    ) where
+    idTagSig_maybe,setIdTagSig) where
 
 import GHC.Prelude
 
@@ -166,6 +166,7 @@ import GHC.Utils.Panic
 import GHC.Utils.Panic.Plain
 import GHC.Utils.GlobalVars
 import GHC.Utils.Trace
+import GHC.Stg.InferTags.TagSig
 
 -- infixl so you can say (id `set` a `set` b)
 infixl  1 `setIdUnfolding`,
@@ -700,6 +701,9 @@ isStrictId id
                   isStrUsedDmd (idDemandInfo id)
                   -- Take the best of both strictnesses - old and new
 
+idTagSig_maybe :: Id -> Maybe TagSig
+idTagSig_maybe = tagSig . idInfo
+
 ---------------------------------
 -- UNFOLDING
 
@@ -723,10 +727,13 @@ idDemandInfo       id = demandInfo (idInfo id)
 setIdDemandInfo :: Id -> Demand -> Id
 setIdDemandInfo id dmd = modifyIdInfo (`setDemandInfo` dmd) id
 
+setIdTagSig :: Id -> TagSig -> Id
+setIdTagSig id sig = modifyIdInfo (`setTagSig` sig) id
+
 -- | If all marks are NotMarkedStrict we just set nothing.
-setIdCbvMarks :: Id -> [StrictnessMark] -> Id
+setIdCbvMarks :: Id -> [CbvMark] -> Id
 setIdCbvMarks id marks
-  | not (any isMarkedStrict marks) = maybeModifyIdDetails (removeMarks $ idDetails id) id
+  | not (any isMarkedCbv marks) = maybeModifyIdDetails (removeMarks $ idDetails id) id
   | otherwise =
       -- pprTrace "setMarks:" (ppr id <> text ":" <> ppr marks) $
       case idDetails id of
@@ -752,7 +759,7 @@ setIdCbvMarks id marks
         StrictWorkerId _ -> Just VanillaId
         _ -> Nothing
 
-idCbvMarks_maybe :: Id -> Maybe [StrictnessMark]
+idCbvMarks_maybe :: Id -> Maybe [CbvMark]
 idCbvMarks_maybe id = case idDetails id of
   StrictWorkerId marks -> Just marks
   JoinId _arity marks  -> marks
@@ -1044,8 +1051,8 @@ transferPolyIdInfo old_id abstract_wrt new_id
     getMark v
       | isId v
       , isEvaldUnfolding (idUnfolding v)
-      = MarkedStrict
-      | otherwise = NotMarkedStrict
+      = MarkedCbv
+      | otherwise = NotMarkedCbv
     -- TODO: StrictWorkerFlags
     transfer new_info = new_info `setArityInfo` new_arity
                                  `setInlinePragInfo` old_inline_prag

@@ -9,8 +9,6 @@ module GHC.Stg.Utils
     , stripStgTicksTop, stripStgTicksTopE
     , idArgs
 
-    , seqTopBinds
-
     , mkUnarisedId, mkUnarisedIds
     ) where
 
@@ -27,7 +25,6 @@ import GHC.Types.Unique.Supply
 import GHC.Types.RepType
 import GHC.Stg.Syntax
 
-import GHC.Utils.Misc
 import GHC.Utils.Outputable
 
 import GHC.Utils.Panic.Plain
@@ -121,43 +118,3 @@ stripStgTicksTopE :: (StgTickish -> Bool) -> GenStgExpr p -> GenStgExpr p
 stripStgTicksTopE p = go
    where go (StgTick t e) | p t = go e
          go other               = other
-------------------------------------
-
--- We do not force types here, mostly because they might not be used at all.
-
-seqTopBinds :: [GenStgTopBinding p] -> ()
-seqTopBinds binds = seqList (map seqTop binds) ()
-
-seqTop :: GenStgTopBinding p -> ()
-seqTop (StgTopStringLit !_v !_s) = ()
-seqTop (StgTopLifted bind)     = seqBinds bind
-
-seqBinds :: GenStgBinding p -> ()
-seqBinds (StgNonRec !_v rhs) = (seqRhs rhs)
-seqBinds (StgRec pairs)    = seqList (map (\v rhs -> v `seq` seqRhs rhs) pairs) ()
-
--- For top level lets we have to turn lets into closures.
-seqRhs :: GenStgRhs p -> ()
-seqRhs (StgRhsCon !_ccs !_con !_n ticks args)   = seqArgs args `seq` seqList ticks ()
-seqRhs (StgRhsClosure !_ext !_ccs !_flag args body) = seqExpr body `seq` seqList args ()
-
-seqExpr :: GenStgExpr p -> ()
-seqExpr (StgCase scrut !_bndr !_ty alts) = seqList (map seqAlt alts) (seqExpr scrut)
-seqExpr (StgLet !_x binds body)         = (seqBinds binds) `seq` (seqExpr body)
-seqExpr (StgLetNoEscape !_x binds body) = (seqBinds binds) `seq` (seqExpr body)
-seqExpr (StgTick !_t e)                 = seqExpr e
-seqExpr (StgConApp !_con !_n args _tys) = seqArgs args
-
-seqExpr (StgApp !_x !_f args)           = seqArgs args
-seqExpr (StgLit !_lit)                  = ()
-seqExpr (StgOpApp !_op args !_res_ty)   = seqArgs args
-
-seqAlt :: GenStgAlt p -> ()
-seqAlt (!_altCon, !_bndrs, rhs) = seqExpr rhs
-
-seqArgs :: [StgArg] -> ()
-seqArgs args = seqList (map seqArg args) ()
-
-seqArg :: StgArg -> ()
-seqArg (StgVarArg !_v) = ()
-seqArg (StgLitArg !_l) = ()

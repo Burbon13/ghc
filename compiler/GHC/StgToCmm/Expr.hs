@@ -55,11 +55,11 @@ import GHC.Data.FastString
 import GHC.Utils.Outputable
 import GHC.Utils.Panic
 import GHC.Utils.Panic.Plain
-import GHC.Driver.Session
 
-import Control.Monad ( unless, void, when )
+import Control.Monad ( unless, void )
 import Control.Arrow ( first )
 import Data.List     ( partition )
+import GHC.Stg.InferTags.TagSig (isTaggedSig)
 
 ------------------------------------------------------------------------
 --              cgExpr: the main function
@@ -67,12 +67,12 @@ import Data.List     ( partition )
 
 cgExpr  :: CgStgExpr -> FCode ReturnKind
 
-cgExpr (StgApp evaled fun args)     = cgIdApp evaled fun args
+cgExpr (StgApp fun args)     = cgIdApp fun args
 
 -- seq# a s ==> a
 -- See Note [seq# magic] in GHC.Core.Opt.ConstantFold
 cgExpr (StgOpApp (StgPrimOp SeqOp) [StgVarArg a, _] _res_ty) =
-  cgIdApp MayEnter a []
+  cgIdApp a []
 
 -- dataToTag# :: a -> Int#
 -- See Note [dataToTag# magic] in primops.txt.pp
@@ -94,7 +94,7 @@ cgExpr (StgOpApp (StgPrimOp DataToTagOp) [StgVarArg a] _res_ty) = do
 
   slow_path <- getCode $ do
       tmp <- newTemp (bWord platform)
-      _ <- withSequel (AssignTo [tmp] False) (cgIdApp MayEnter a [])
+      _ <- withSequel (AssignTo [tmp] False) (cgIdApp a [])
       ptr_opts <- getPtrOpts
       emitAssign (CmmLocal result_reg)
         $ getConstrTag ptr_opts (cmmUntag platform (CmmReg (CmmLocal tmp)))
@@ -323,8 +323,6 @@ Hence: two basic plans for
         ...code for alts...
         ...no heap check...
 
-   Note [Handle gc for evaluated scrutinees]
-
    ------ Plan C: special case when ---------
 
   (i)  e is already evaluated
@@ -340,14 +338,12 @@ Hence: two basic plans for
         ...no heap check...
 
   -- Reasoning for Plan C:
-
    This is fairly similar to A, however there is no code to execute to
    get the value of e.
 
    When using GcInAlts the return point for heap checks and evaluating
    the scrutinee is shared. This does mean we might execute the actual
    branching code twice but it's rare enough to not matter.
-
    The huge advantage of this pattern is that we do not require multiple
    info tables for returning from gc as they can be shared between all
    cases.
@@ -423,7 +419,7 @@ exist, perhaps because the occurrence information preserved by
 job we deleted the hacks.
 -}
 
-cgCase (StgApp _ext v []) _ (PrimAlt _) alts
+cgCase (StgApp v []) _ (PrimAlt _) alts
   | isVoidRep (idPrimRep v)  -- See Note [Scrutinising VoidRep]
   , [(DEFAULT, _, rhs)] <- alts
   = cgExpr rhs
@@ -444,7 +440,7 @@ then we'll get a runtime panic, because the HValue really is a
 MutVar#.  The types are compatible though, so we can just generate an
 assignment.
 -}
-cgCase (StgApp _ext v []) bndr alt_type@(PrimAlt _) alts
+cgCase (StgApp v []) bndr alt_type@(PrimAlt _) alts
   | isUnliftedType (idType v)  -- Note [Dodgy unsafeCoerce 1]
   = -- assignment suffices for unlifted types
     do { platform <- getPlatform
@@ -472,7 +468,7 @@ because bottom must be untagged, it will be entered.  The Sequel is a
 type-correct assignment, albeit bogus.  The (dead) continuation loops;
 it would be better to invoke some kind of panic function here.
 -}
-cgCase scrut@(StgApp _ext v []) _ (PrimAlt _) _
+cgCase scrut@(StgApp v []) _ (PrimAlt _) _
   = do { platform <- getPlatform
        ; mb_cc <- maybeSaveCostCentre True
        ; _ <- withSequel
@@ -504,7 +500,7 @@ cgCase (StgOpApp (StgPrimOp SeqOp) [StgVarArg a, _] _) bndr alt_type alts
   = -- Note [Handle seq#]
     -- And see Note [seq# magic] in GHC.Core.Opt.ConstantFold
     -- Use the same return convention as vanilla 'a'.
-    cgCase (StgApp MayEnter a []) bndr alt_type alts
+    cgCase (StgApp a []) bndr alt_type alts
 
 cgCase scrut bndr alt_type alts
   = -- the general case
@@ -537,7 +533,9 @@ cgCase scrut bndr alt_type alts
     is_cmp_op (StgOpApp (StgPrimOp op) _ _) = isComparisonPrimOp op
     is_cmp_op _                             = False
     evaluatedScrut
-      | (StgApp NoEnter _v []) <- scrut = True
+      | (StgApp v []) <- scrut
+      , Just sig <- idTagSig_maybe v
+      , isTaggedSig sig = True
       | otherwise = False
 
 
@@ -592,8 +590,10 @@ isSimpleScrut :: CgStgExpr -> AltType -> FCode Bool
 --     when it does, you'll deeply mess up allocation
 isSimpleScrut (StgOpApp op args _) _         = isSimpleOp op args
 isSimpleScrut (StgLit _)           _         = return True       -- case 1# of { 0# -> ..; ... }
-isSimpleScrut (StgApp _ _ [])    (PrimAlt _) = return True       -- case x# of { 0# -> ..; ... }
-isSimpleScrut (StgApp NoEnter _ [])   _      = return True       -- case !x of { ... }
+isSimpleScrut (StgApp _ [])    (PrimAlt _) = return True       -- case x# of { 0# -> ..; ... }
+isSimpleScrut (StgApp f [])   _
+  | Just sig <- idTagSig_maybe f
+  = return $! isTaggedSig sig       -- case !x of { ... }
 isSimpleScrut _                    _         = return False
 
 isSimpleOp :: StgOp -> [StgArg] -> FCode Bool
@@ -948,10 +948,9 @@ cgConApp con mn stg_args
         ; tickyReturnNewCon (length stg_args)
         ; emitReturn [idInfoToAmode idinfo] }
 
-cgIdApp :: AppEnters -> Id -> [StgArg] -> FCode ReturnKind
-cgIdApp strict fun_id args = do
+cgIdApp :: Id -> [StgArg] -> FCode ReturnKind
+cgIdApp fun_id args = do
     platform       <- getPlatform
-    dflags         <- getDynFlags
     fun_info       <- getCgIdInfo fun_id
     self_loop_info <- getSelfLoop
     call_opts      <- getCallOpts
@@ -962,7 +961,7 @@ cgIdApp strict fun_id args = do
         lf_info     = cg_lf         fun_info
         n_args      = length args
         v_args      = length $ filter (isVoidTy . stgArgType) args
-    case getCallMethod call_opts fun_name fun_id lf_info n_args v_args (cg_loc fun_info) self_loop_info strict of
+    case getCallMethod call_opts fun_name fun_id lf_info n_args v_args (cg_loc fun_info) self_loop_info of
         -- A value in WHNF & tagged, so we can just return it.
         ReturnIt
           | isVoidTy (idType fun_id) -> emitReturn []
@@ -983,11 +982,10 @@ cgIdApp strict fun_id args = do
                 tickyTagSkip use_id fun_id
 
                 -- pprTraceM "WHNF:" (ppr fun_id <+> ppr args )
-              assertTag =
-                -- TODO: Move into platform
-                -- enabled by -dtag-inference-checks
-                when (gopt Opt_DoTagInferenceChecks dflags) $
-                  emitTagAssertion (showPprUnsafe (ppr fun_id <+> pprExpr platform fun)) fun
+              assertTag = whenCheckTags $
+                  emitTagAssertion (showPprUnsafe
+                      (text "TagCheck failed on entry - value:" <> ppr fun_id <+> pprExpr platform fun))
+                      fun
 
         EnterIt -> assert (null args) $  -- Discarding arguments
                    emitEnter fun

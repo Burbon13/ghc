@@ -114,7 +114,6 @@ type instance BinderP      'LiftLams = BinderInfo
 type instance XRhsClosure  'LiftLams = DIdSet
 type instance XLet         'LiftLams = Skeleton
 type instance XLetNoEscape 'LiftLams = Skeleton
-type instance XStgApp      'LiftLams = AppEnters
 
 
 -- | Captures details of the syntax tree relevant to the cost model, such as
@@ -212,8 +211,8 @@ tagSkeletonExpr (StgConApp con mn args tys)
   = (NilSk, mkArgOccs args, StgConApp con mn args tys)
 tagSkeletonExpr (StgOpApp op args ty)
   = (NilSk, mkArgOccs args, StgOpApp op args ty)
-tagSkeletonExpr (StgApp ext f args)
-  = (NilSk, arg_occs, StgApp ext f args)
+tagSkeletonExpr (StgApp f args)
+  = (NilSk, arg_occs, StgApp f args)
   where
     arg_occs
       -- This checks for nullary applications, which we treat the same as

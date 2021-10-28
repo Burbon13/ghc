@@ -98,6 +98,7 @@ import GHC.Utils.Misc
 
 import Data.Coerce (coerce)
 import qualified Data.ByteString.Char8 as BS8
+import GHC.Stg.InferTags.TagSig (isTaggedSig)
 
 -----------------------------------------------------------------------------
 --                Data types and synonyms
@@ -484,9 +485,15 @@ data CallMethod
   | ReturnIt            -- It's a value (function, unboxed value,
                         -- or constructor), so just return it.
 
-  | InferedReturnIt     -- Same as ReturnIt but based on tag inference.
-                        -- See Note [Tag Inferrence - The basic idea] in
-                        -- GHC.Stg.InferTags
+  | InferedReturnIt     -- A properly tagged value, as determined by tag inference.
+                        -- See Note [Tag inference] and Note [Tag inference passes] in
+                        -- GHC.Stg.InferTags.
+                        -- It behaves /precisely/ like `ReturnIt`, except that when debugging is
+                        -- enabled we emit an extra assertion to check that the returned value is
+                        -- properly tagged.  We can use this as a check that tag inference is working
+                        -- correctly.
+                        -- TODO: SPJ suggested we could combine this with EnterIt, but for now I decided
+                        -- not to do so.
 
   | SlowCall            -- Unknown fun, or known fun with
                         -- too few args.
@@ -524,11 +531,10 @@ getCallMethod :: CallOpts
                                 -- JumpToIt. This saves us one case branch in
                                 -- cgIdApp
               -> Maybe SelfLoopInfo -- can we perform a self-recursive tail call?
-              -> AppEnters      -- Can we expect the id to be tagged or do we need to enter it?
               -> CallMethod
 
 getCallMethod opts _ id _ n_args v_args _cg_loc
-              (Just (self_loop_id, block_id, args)) _appEnterInfo
+              (Just (self_loop_id, block_id, args))
   | co_loopification opts
   , id == self_loop_id
   , args `lengthIs` (n_args - v_args)
@@ -541,7 +547,7 @@ getCallMethod opts _ id _ n_args v_args _cg_loc
   = JumpToIt block_id args
 
 getCallMethod opts name id (LFReEntrant _ arity _ _) n_args _v_args _cg_loc
-              _self_loop_info _appEnterInfo
+              _self_loop_info
   | n_args == 0 -- No args at all
   && not (profileIsProfiling (co_profile opts))
      -- See Note [Evaluating functions with profiling] in rts/Apply.cmm
@@ -549,19 +555,20 @@ getCallMethod opts name id (LFReEntrant _ arity _ _) n_args _v_args _cg_loc
   | n_args < arity = SlowCall        -- Not enough args
   | otherwise      = DirectEntry (enterIdLabel (profilePlatform (co_profile opts)) name (idCafInfo id)) arity
 
-getCallMethod _ _name _ LFUnlifted n_args _v_args _cg_loc _self_loop_info _appEnterInfo
+getCallMethod _ _name _ LFUnlifted n_args _v_args _cg_loc _self_loop_info
   = assert (n_args == 0) ReturnIt
 
-getCallMethod _ _name _ (LFCon _) n_args _v_args _cg_loc _self_loop_info _appEnterInfo
+getCallMethod _ _name _ (LFCon _) n_args _v_args _cg_loc _self_loop_info
   = assert (n_args == 0) ReturnIt
     -- n_args=0 because it'd be ill-typed to apply a saturated
     --          constructor application to anything
 
 getCallMethod opts name id (LFThunk _ _ updatable std_form_info is_fun)
-              n_args _v_args _cg_loc _self_loop_info appEnterInfo
+              n_args _v_args _cg_loc _self_loop_info
 
-  | appEnterInfo == NoEnter -- Infered to be already evaluated by Tag Inference
-  , n_args == 0             -- See Note [Tag Inferrence - The basic idea]
+  | Just sig <- idTagSig_maybe id
+  , isTaggedSig sig -- Infered to be already evaluated by Tag Inference
+  , n_args == 0     -- See Note [Tag inference]
   = InferedReturnIt
 
   | is_fun      -- it *might* be a function, so we must "call" it (which is always safe)
@@ -595,14 +602,15 @@ getCallMethod opts name id (LFThunk _ _ updatable std_form_info is_fun)
                 updatable) 0
 
 -- Imported(Unknown) Ids
-getCallMethod opts name _ (LFUnknown might_be_a_function) n_args _v_args _cg_locs _self_loop_info appEnterInfo
+getCallMethod opts name id (LFUnknown might_be_a_function) n_args _v_args _cg_locs _self_loop_info
   | n_args == 0
-  , appEnterInfo == NoEnter
+  , Just sig <- idTagSig_maybe id
+  , isTaggedSig sig -- Infered to be already evaluated by Tag Inference
   -- When profiling we enter functions to update the SCC so we
-  -- can't use the inferted enterInfo here.
+  -- can't use the infered enterInfo here.
   -- See Note [Evaluating functions with profiling] in rts/Apply.cmm
   , not (profileIsProfiling (co_profile opts) && might_be_a_function)
-  = InferedReturnIt
+  = InferedReturnIt -- See Note [Tag inference]
 
   | might_be_a_function = SlowCall
 
@@ -611,15 +619,15 @@ getCallMethod opts name _ (LFUnknown might_be_a_function) n_args _v_args _cg_loc
       EnterIt   -- Not a function
 
 -- TODO: Redundant with above match?
--- getCallMethod _ name _ (LFUnknown False) n_args _v_args _cg_loc _self_loop_info _appEnterInfo
+-- getCallMethod _ name _ (LFUnknown False) n_args _v_args _cg_loc _self_loop_info
 --   = assertPpr (n_args == 0) (ppr name <+> ppr n_args)
 --     EnterIt -- Not a function
 
 getCallMethod _ _name _ LFLetNoEscape _n_args _v_args (LneLoc blk_id lne_regs)
-              _self_loop_info _appEnterInfo
+              _self_loop_info
   = JumpToIt blk_id lne_regs
 
-getCallMethod _ _ _ _ _ _ _ _ _ = panic "Unknown call method"
+getCallMethod _ _ _ _ _ _ _ _ = panic "Unknown call method"
 
 -----------------------------------------------------------------------------
 --              Data types for closure information

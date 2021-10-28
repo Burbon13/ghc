@@ -9,8 +9,8 @@
 -----------------------------------------------------------------------------
 
 module GHC.StgToCmm.TagCheck
-  ( emitTagAssertion, emitArgTagCheck
-  ) where
+  ( emitTagAssertion, emitArgTagCheck, checkArg, whenCheckTags,
+    checkArgStatic, checkFunctionArgTags,checkConArgsStatic,checkConArgsDyn) where
 
 import GHC.Prelude
 
@@ -28,15 +28,51 @@ import GHC.Utils.Outputable
 
 import GHC.Core.DataCon
 import Control.Monad
+import GHC.Driver.Flags (GeneralFlag(Opt_DoTagInferenceChecks))
+import GHC.Driver.Session (gopt)
+import GHC.StgToCmm.Types
+import GHC.Utils.Panic (pprPanic)
+import GHC.Utils.Panic.Plain (panic)
+import GHC.Stg.Syntax
+import GHC.StgToCmm.Closure
+import GHC.Types.RepType (dataConRuntimeRepStrictness)
+import GHC.Types.Basic
 
--- Perhaps the code below would fit better elseehere like the Utils module
--- but to avoid loops I decided it simplest to put them here.
+-- | Check all arguments marked as already tagged for a function
+-- are tagged by inserting runtime checks.
+checkFunctionArgTags :: SDoc -> Id -> [Id] -> FCode ()
+checkFunctionArgTags msg f args = whenCheckTags $ do
+  onJust (return ()) (idCbvMarks_maybe f) $ \marks -> do
+    -- Only check args marked as strict, and only lifted ones.
+    let cbv_args = filter (isLiftedRuntimeRep . idType) $ filterByList (map isMarkedCbv marks) args
+    -- Get their (cmm) address
+    arg_infos <- mapM getCgIdInfo cbv_args
+    let arg_cmms = map idInfoToAmode arg_infos
+    mapM_ (emitTagAssertion (showPprUnsafe msg))  (arg_cmms)
+
+-- | Check all required-tagged arguments of a constructor are tagged *at compile time*.
+checkConArgsStatic :: SDoc -> DataCon -> [StgArg] -> FCode ()
+checkConArgsStatic msg con args = whenCheckTags $ do
+  let marks = dataConRuntimeRepStrictness con
+  zipWithM_ (checkArgStatic msg) marks args
+
+-- Check all required arguments of a constructor are tagged.
+-- Possible by emitting checks at runtime.
+checkConArgsDyn :: SDoc -> DataCon -> [StgArg] -> FCode ()
+checkConArgsDyn msg con args = whenCheckTags $ do
+  let marks = dataConRuntimeRepStrictness con
+  zipWithM_ (checkArgStatic msg) marks args
+
+whenCheckTags :: FCode () -> FCode ()
+whenCheckTags act = do
+  dflags <- getDynFlags
+  when (gopt Opt_DoTagInferenceChecks dflags) act
 
 -- | Call barf if we failed to predict a tag correctly.
 -- This is immensly useful when debugging issues in tag inference
 -- as it will result in a program abort when we encounter an invalid
 -- call/heap object, rather than leaving it be and segfaulting arbitrary
--- long after.
+-- or producing invalid results.
 emitTagAssertion :: String -> CmmExpr -> FCode ()
 emitTagAssertion onWhat fun = do
   { platform <- getPlatform
@@ -50,14 +86,51 @@ emitTagAssertion onWhat fun = do
   ; emitLabel lret
   }
 
-emitArgTagCheck :: Id -> [Id] -> FCode ()
-emitArgTagCheck id args = do
-  let marks = idCbvMarks_maybe id
-  case marks of
-    Nothing -> return ()
-    Just marks -> do
-      let cbv_args = filter (isLiftedRuntimeRep . idType) $ filterByList (map isMarkedStrict marks) args
-      arg_infos <- mapM getCgIdInfo cbv_args
-      let arg_cmms = map idInfoToAmode arg_infos
-          mk_msg arg = showPprUnsafe (text "Untagged arg:" <> ppr id <+> ppr arg)
-      zipWithM_ emitTagAssertion (map mk_msg args) (arg_cmms)
+emitArgTagCheck :: SDoc -> [CbvMark] -> [Id] -> FCode ()
+emitArgTagCheck info marks args = whenCheckTags $ do
+  mod <- getModuleName
+  let cbv_args = filter (isLiftedRuntimeRep . idType) $ filterByList (map isMarkedCbv marks) args
+  arg_infos <- mapM getCgIdInfo cbv_args
+  let arg_cmms = map idInfoToAmode arg_infos
+      mk_msg arg = showPprUnsafe (text "Untagged arg:" <> (ppr mod) <> char ':' <> info <+> ppr arg)
+  zipWithM_ emitTagAssertion (map mk_msg args) (arg_cmms)
+
+taggedCgInfo :: CgIdInfo -> Bool
+taggedCgInfo cg_info
+  = case lf of
+      LFCon {} -> True
+      LFReEntrant {} -> True
+      LFUnlifted {} -> True
+      LFThunk {} -> False
+      LFUnknown {} -> False
+      LFLetNoEscape -> panic "Let no escape binding passed to top level con"
+  where
+    lf = cg_lf cg_info
+
+-- Check that one argument is properly tagged.
+checkArg :: SDoc -> CbvMark -> StgArg -> FCode ()
+checkArg _ NotMarkedCbv _ = return ()
+checkArg msg MarkedCbv arg = whenCheckTags $
+  case arg of
+    StgLitArg _ -> return ()
+    StgVarArg v -> do
+      info <- getCgIdInfo v
+      if taggedCgInfo info
+          then return ()
+          else case (cg_loc info) of
+            CmmLoc loc -> emitTagAssertion (showPprUnsafe msg) loc
+            LneLoc {} -> panic "LNE-arg"
+
+-- Check that argument is properly tagged.
+checkArgStatic :: SDoc -> StrictnessMark  -> StgArg -> FCode ()
+checkArgStatic _   NotMarkedStrict _ = return ()
+checkArgStatic msg MarkedStrict arg = whenCheckTags $
+  case arg of
+    StgLitArg _ -> return ()
+    StgVarArg v -> do
+      info <- getCgIdInfo v
+      if taggedCgInfo info
+          then return ()
+          else pprPanic "Arg not tagged as expectd" (ppr msg <+> ppr arg)
+
+

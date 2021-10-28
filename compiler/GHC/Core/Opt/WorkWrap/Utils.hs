@@ -165,7 +165,7 @@ initWwOpts this_mod dflags fam_envs = MkWwOpts
 
 type WwResult
   = ([Demand],              -- Demands for worker (value) args
-     [StrictnessMark],       -- Cbv marks for worker (value) args
+     [CbvMark],       -- Cbv marks for worker (value) args
      JoinArity,             -- Number of worker (type OR value) args
      Id -> CoreExpr,        -- Wrapper body, lacking only the worker Id
      CoreExpr -> CoreExpr)  -- Worker body, lacking the original function rhs
@@ -236,7 +236,7 @@ mkWwBodies opts fun_id arg_vars res_ty demands res_cpr
               (subst, cloned_arg_vars) = cloneBndrs empty_subst uniq_supply zapped_arg_vars
               res_ty' = GHC.Core.Subst.substTy subst res_ty
               -- TODO:Could set all demanded args to cbv here I suppose
-              init_cbv_marks = replicate (length cloned_arg_vars) NotMarkedStrict
+              init_cbv_marks = replicate (length cloned_arg_vars) NotMarkedCbv
 
         -- TODO
         ; (useful1, work_args, work_marks, wrap_fn_str, fn_args)
@@ -394,17 +394,17 @@ We use the state-token type which generates no code.
 mkWorkerArgs :: Id      -- The wrapper Id
              -> Bool
              -> [Var]
-             -> [StrictnessMark]
+             -> [CbvMark]
              -> Type    -- Type of body
              -> ([Var], -- Lambda bound args
                  [Var],
-                 [StrictnessMark]
+                 [CbvMark]
                  ) -- Args at call site
 mkWorkerArgs wrap_id fun_to_thunk args cbv_marks res_ty
     | not (isJoinId wrap_id) -- Join Ids never need an extra arg
     , not (any isId args)    -- No existing value lambdas
     , needs_a_value_lambda   -- and we need to add one
-    = (args ++ [voidArgId], args ++ [voidPrimId], [NotMarkedStrict])
+    = (args ++ [voidArgId], args ++ [voidPrimId], [NotMarkedCbv])
 
     | otherwise
     = (args, args, cbv_marks)
@@ -962,10 +962,10 @@ way to express existential types in the worker's type signature.
 mkWWstr :: WwOpts
         -> [Var]                         -- Wrapper args; have their demand info on them
                                          --  *Includes type variables*
-        -> [StrictnessMark]              -- cbv info for arguments
+        -> [CbvMark]              -- cbv info for arguments
         -> UniqSM (WorkerQuality,        -- Will this result in a useful worker
                    [Var],                -- Worker args
-                   [StrictnessMark],     -- Are the worker args call by value?
+                   [CbvMark],     -- Are the worker args call by value?
                    CoreExpr -> CoreExpr, -- Wrapper body, lacking the worker call
                                          -- and without its lambdas
                                          -- This fn adds the unboxing
@@ -997,8 +997,8 @@ mkWWstr opts args cbv_info
 -- See Note [Worker/wrapper for Strictness and Absence]
 mkWWstr_one :: WwOpts
             -> Var
-            -> StrictnessMark
-            -> UniqSM (Bool, [Var], [StrictnessMark], CoreExpr -> CoreExpr, CoreExpr)
+            -> CbvMark
+            -> UniqSM (WorkerQuality, [Var], [CbvMark], CoreExpr -> CoreExpr, CoreExpr)
 mkWWstr_one opts arg marked_cbv =
   case wantToUnboxArg (wo_unlift_strict opts) fam_envs arg_ty arg_dmd of
     _ | isTyVar arg -> do_nothing
@@ -1014,7 +1014,7 @@ mkWWstr_one opts arg marked_cbv =
     Unbox dcpc ds -> unbox_one_arg opts arg ds dcpc marked_cbv
 
     Unlift -> return (unliftWorkerArg opts, [setIdUnfolding arg evaldUnfolding]
-                     ,[MarkedStrict], nop_fn, varToCoreExpr arg)
+                     ,[MarkedCbv], nop_fn, varToCoreExpr arg)
 
     _ -> do_nothing -- Other cases, like StopUnboxing
 
@@ -1030,23 +1030,26 @@ unbox_one_arg :: WwOpts
           -> Var
           -> [Demand]
           -> DataConPatContext
-          -> StrictnessMark
-          -> UniqSM (WorkerQuality, [Var], [StrictnessMark], CoreExpr -> CoreExpr, CoreExpr)
+          -> CbvMark
+          -> UniqSM (WorkerQuality, [Var], [CbvMark], CoreExpr -> CoreExpr, CoreExpr)
 unbox_one_arg opts arg_var ds
           DataConPatContext { dcpc_dc = dc, dcpc_tc_args = tc_args
                             , dcpc_co = co }
           _marked_cbv
   = do { pat_bndrs_uniqs <- getUniquesM
        ; let ex_name_fss = map getOccFS $ dataConExTyCoVars dc
+             -- Create new arguments we get when unboxing dc
              (ex_tvs', arg_ids) =
                dataConRepFSInstPat (ex_name_fss ++ repeat ww_prefix) pat_bndrs_uniqs (idMult arg_var) dc tc_args
+             -- Apply str info to new args.
              arg_ids' = zipWithEqual "unbox_one_arg" setIdDemandInfo arg_ids ds
              unbox_fn = mkUnpackCase (Var arg_var) co (idMult arg_var)
                                      dc (ex_tvs' ++ arg_ids')
+             -- Mark arguments coming out of strict fields as evaluated and give them cbv semantics. See Note [Strict Worker Ids]
              cbv_arg_marks = dataConRepStrictness dc
              unf_args = zipWith setEvald arg_ids' cbv_arg_marks
              cbv_marks = assertPpr (length arg_ids == length cbv_arg_marks) (ppr dc) $
-                         (replicate (length ex_tvs') NotMarkedStrict) ++ cbv_arg_marks
+                         (map (const NotMarkedCbv) ex_tvs') ++ map cbvFromStrictMark cbv_arg_marks
        ; (_sub_args_quality, worker_args, cbv_marks, wrap_fn, wrap_args) <- mkWWstr opts (ex_tvs' ++ unf_args) cbv_marks
        ; let wrap_arg = mkConApp dc (map Type tc_args ++ wrap_args) `mkCast` mkSymCo co
        ; assertPpr (length (filter isId worker_args) == length cbv_marks)
@@ -1060,7 +1063,7 @@ unbox_one_arg opts arg_var ds
        ; return (goodWorker, worker_args, cbv_marks, unbox_fn . wrap_fn, wrap_arg) }
                           -- Don't pass the arg, rebox instead
     where setEvald var NotMarkedStrict = var
-          setEvald var MarkedStrict  = setIdUnfolding var evaldUnfolding
+          setEvald var MarkedStrict    = setIdUnfolding var evaldUnfolding
 
 -- | Tries to find a suitable absent filler to bind the given absent identifier
 -- to. See Note [Absent fillers].
@@ -1072,11 +1075,10 @@ mkAbsentFiller opts arg
   -- The lifted case: Bind 'absentError' for a nice panic message if we are
   -- wrong (like we were in #11126). See (1) in Note [Absent fillers]
 
-  -- -- TODO: Reenable. This is just a dirty hack around #19766
-  -- | Just [LiftedRep] <- mb_mono_prim_reps
-  -- , not (isStrictDmd (idDemandInfo arg)) -- See (2) in Note [Absent fillers]
-  -- , False
-  -- = Just (Let (NonRec arg panic_rhs))
+  -- TODO: Reenable. This is just a dirty hack around #19766
+  | not (isUnliftedType arg_ty)
+  , not is_strict, not is_evald -- See (2) in Note [Absent fillers]
+  = Just (mkAbsentErrorApp arg_ty msg)
 
   -- The default case for mono rep: Bind `RUBBISH[rr] arg_ty`
   -- See Note [Absent fillers], the main part
@@ -1084,8 +1086,8 @@ mkAbsentFiller opts arg
   = mkLitRubbish arg_ty
 
   where
-    arg_ty    = idType arg
     is_strict = isStrictDmd (idDemandInfo arg)
+    arg_ty    = idType arg
     is_evald  = isEvaldUnfolding $ idUnfolding arg
 
     msg = renderWithContext
