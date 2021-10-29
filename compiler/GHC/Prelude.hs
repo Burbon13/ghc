@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Custom GHC "Prelude"
 --
@@ -102,6 +103,8 @@ shiftR = Bits.unsafeShiftR
 type SomeExceptionWithLocation = SomeException
 
 {-# COMPLETE SomeExceptionWithLocation #-}
-pattern SomeExceptionWithLocation :: () => forall e. Exception e => e -> SomeException
-pattern SomeExceptionWithLocation e = SomeException e
+pattern SomeExceptionWithLocation :: forall. forall a. Exception a => a -> () -> SomeException
+pattern SomeExceptionWithLocation e unit <- (\x -> ((), x) -> (unit, SomeException e))
+  where
+    SomeExceptionWithLocation e _ = SomeException e
 #endif
