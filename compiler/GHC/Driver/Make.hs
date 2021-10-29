@@ -420,11 +420,13 @@ warnUnusedPackages hsc_env mod_graph =
 data BuildPlan = SingleModule ModuleGraphNode  -- A simple, single module all alone but *might* have an hs-boot file which isn't part of a cycle
                | ResolvedCycle [ModuleGraphNode]   -- A resolved cycle, linearised by hs-boot files
                | UnresolvedCycle [ModuleGraphNode] -- An actual cycle, which wasn't resolved by hs-boot files
+               | LinkMain ExtendedModSummary
 
 instance Outputable BuildPlan where
   ppr (SingleModule mgn) = text "SingleModule" <> parens (ppr mgn)
   ppr (ResolvedCycle mgn)   = text "ResolvedCycle:" <+> ppr mgn
   ppr (UnresolvedCycle mgn) = text "UnresolvedCycle:" <+> ppr mgn
+  ppr (LinkMain mod_sum)    = text "LinkMain:" <+> ppr mod_sum
 
 
 -- Just used for an assertion
@@ -432,6 +434,42 @@ countMods :: BuildPlan -> Int
 countMods (SingleModule _) = 1
 countMods (ResolvedCycle ns) = length ns
 countMods (UnresolvedCycle ns) = length ns
+countMods LinkMain {} = 0
+
+-- Decide which units we want to attempt linking for:
+createLinkPlan :: ModuleGraph -> HscEnv -> Maybe BuildPlan
+createLinkPlan mod_graph hsc_env = undefined
+{-
+  let dflags = hsc_dflags hsc_env
+      logger = hsc_logger hsc_env
+      ofile = outputFile_ dflags
+  -- Issue a warning for the confusing case where the user
+  -- said '-o foo' but we're not going to do any linking.
+  -- We attempt linking if either (a) one of the modules is
+  -- called Main, or (b) the user said -no-hs-main, indicating
+  -- that main() is going to come from somewhere else.
+  --
+      no_hs_main = gopt Opt_NoHsMain dflags
+
+      main_mod = mainModIs hsc_env
+      main_sum = mgLookupModule mod_graph main_mod
+      link_main_is =
+        case main_sum of
+          Nothing -> Nothing
+          Just ms -> no_hs_main || ghcLink dflags == LinkDynLib || ghcLink dflags == LinkStaticLib
+  in if ghcLink dflags == LinkBinary && isJust ofile && not do_linking
+        then do
+                    {-liftIO $ errorMsg logger $ text
+                      ("output was redirected with -o, " ++
+                       "but no output will be generated\n" ++
+                       "because there is no " ++
+                       moduleNameString (moduleName main_mod) ++ " module.")
+                       -}
+                    error "todo"
+                    -- This should be an error, not a warning (#10895).
+    else if do_linking then Just (LinkMain main_sum)
+                       else Nothing
+                       -}
 
 -- See Note [Upsweep] for a high-level description.
 createBuildPlan :: ModuleGraph -> Maybe ModuleName -> [BuildPlan]
@@ -546,6 +584,8 @@ load' cache how_much mHscMessage mod_graph = do
 
         build_plan = createBuildPlan mod_graph maybe_top_mod
 
+        link_plan  = createLinkPlan
+
 
 
 
@@ -573,64 +613,21 @@ load' cache how_much mHscMessage mod_graph = do
                     Nothing -> liftIO getNumProcessors
                     Just n  -> return n
 
+    -- MP: This should empty HUG
     setSession $ hscUpdateHPT (const emptyHomePackageTable) hsc_env
     hsc_env <- getSession
     (upsweep_ok, hsc_env1, new_cache) <- withDeferredDiagnostics $
       liftIO $ upsweep n_jobs hsc_env mHscMessage (toCache pruned_cache) direct_deps build_plan
     setSession hsc_env1
     fmap (, new_cache) $ case upsweep_ok of
-      Failed -> loadFinish upsweep_ok Succeeded
-
+      Failed -> loadFinish upsweep_ok
       Succeeded -> do
-       -- Make modsDone be the summaries for each home module now
-       -- available; this should equal the domain of hpt3.
-       -- Get in in a roughly top .. bottom order (hence reverse).
-
-       -- Try and do linking in some form, depending on whether the
-       -- upsweep was completely or only partially successful.
-
-       -- Easy; just relink it all.
-       do liftIO $ debugTraceMsg logger 2 (text "Upsweep completely successful.")
-
+          liftIO $ debugTraceMsg logger 2 (text "Upsweep completely successful.")
           -- Clean up after ourselves
-          hsc_env1 <- getSession
           liftIO $ cleanCurrentModuleTempFilesMaybe logger (hsc_tmpfs hsc_env1) dflags
+          loadFinish upsweep_ok
 
-          -- Issue a warning for the confusing case where the user
-          -- said '-o foo' but we're not going to do any linking.
-          -- We attempt linking if either (a) one of the modules is
-          -- called Main, or (b) the user said -no-hs-main, indicating
-          -- that main() is going to come from somewhere else.
-          --
-          let ofile = outputFile_ dflags
-          let no_hs_main = gopt Opt_NoHsMain dflags
-          let
-            main_mod = mainModIs hsc_env
-            a_root_is_Main = mgElemModule mod_graph main_mod
-            do_linking = a_root_is_Main || no_hs_main || ghcLink dflags == LinkDynLib || ghcLink dflags == LinkStaticLib
 
-          -- link everything together
-          hsc_env <- getSession
-          linkresult <- liftIO $ link (ghcLink dflags)
-                                      logger
-                                      (hsc_tmpfs hsc_env)
-                                      (hsc_hooks hsc_env)
-                                      dflags
-                                      (hsc_unit_env hsc_env)
-                                      do_linking
-                                      (hsc_HPT hsc_env1)
-
-          if ghcLink dflags == LinkBinary && isJust ofile && not do_linking
-             then do
-                liftIO $ errorMsg logger $ text
-                   ("output was redirected with -o, " ++
-                    "but no output will be generated\n" ++
-                    "because there is no " ++
-                    moduleNameString (moduleName main_mod) ++ " module.")
-                -- This should be an error, not a warning (#10895).
-                loadFinish Failed linkresult
-             else
-                loadFinish Succeeded linkresult
 
 partitionNodes
   :: [ModuleGraphNode]
@@ -642,19 +639,10 @@ partitionNodes ns = partitionEithers $ flip fmap ns $ \case
   ModuleNode x -> Right x
 
 -- | Finish up after a load.
-loadFinish :: GhcMonad m => SuccessFlag -> SuccessFlag -> m SuccessFlag
-
--- If the link failed, unload everything and return.
-loadFinish _all_ok Failed
-  = do hsc_env <- getSession
-       let interp = hscInterp hsc_env
-       liftIO $ unload interp hsc_env
-       modifySession discardProg
-       return Failed
-
+loadFinish :: GhcMonad m => SuccessFlag -> m SuccessFlag
 -- Empty the interactive context and set the module context to the topmost
 -- newly loaded module, or the Prelude if none were loaded.
-loadFinish all_ok Succeeded
+loadFinish all_ok
   = do modifySession discardIC
        return all_ok
 
@@ -980,6 +968,38 @@ interpretBuildPlan hug old_hpt deps_map plan = do
 
         -- Can't continue past this point as the cycle is unresolved.
         UnresolvedCycle ns -> return (Just ns, [])
+
+        LinkMain ems -> do
+          act <- linkMain ems
+          return (Nothing, [act])
+
+    linkMain :: ExtendedModSummary -> BuildM MakeAction
+    linkMain ems = do
+      home_mod_map <- getBuildMap
+      hpt_var <- gets hpt_var
+      let node = ModuleNode ems
+      -- Wait for the Main module to be compiled, then all dependencies will be ready.
+      let build_dep = snd $ expectJust "build_deps" $ M.lookup (mkNodeKey node) home_mod_map
+      let build_action = do
+            withCurrentUnit (moduleGraphNodeUnitId node) $ do
+              MakeEnv{..} <- ask
+              hug <- wait_deps_hpt hpt_var [build_dep]
+              let dflags = hsc_dflags hsc_env
+              let hsc_env' = setHUG hug hsc_env
+
+              linkresult <- liftIO $ withAbstractSem compile_sem $ link (ghcLink dflags)
+                                          (hsc_logger hsc_env')
+                                          (hsc_tmpfs hsc_env')
+                                          (hsc_hooks hsc_env')
+                                          dflags
+                                          (hsc_unit_env hsc_env')
+                                          True -- We already decided to link
+                                      (hsc_HPT hsc_env')
+              case linkresult of
+                Failed -> fail "Link Failed"
+                Succeeded -> return Nothing
+      res_var <- liftIO newEmptyMVar
+      return (MakeAction build_action res_var)
 
     buildSingleModule :: Maybe (ModuleEnv (IORef TypeEnv)) -> ModuleGraphNode -> BuildM (MakeAction, ResultVar (Maybe HomeModInfo))
     buildSingleModule knot_var mod = do
