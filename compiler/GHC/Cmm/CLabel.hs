@@ -478,8 +478,6 @@ data IdLabelInfo
 
   | IdTickyInfo !TickyIdInfo -- ^ Label of place to keep Ticky-ticky  info for this Id
 
-  | RednCounts          -- ^ Label of place to keep Ticky-ticky  info for this Id
-
   | ConEntry ConInfoTableLocation
   -- ^ Constructor entry point, when `-fdistinct-info-tables` is enabled then
   -- each usage of a constructor will be given a unique number and a fresh info
@@ -525,7 +523,6 @@ instance Outputable IdLabelInfo where
   ppr LocalInfoTable  = text "LocalInfoTable"
   ppr LocalEntry      = text "LocalEntry"
 
-  ppr RednCounts      = text "RednCounts"
   ppr (ConEntry mn) = text "ConEntry" <+> ppr mn
   ppr (ConInfoTable mn) = text "ConInfoTable" <+> ppr mn
   ppr ClosureTable = text "ClosureTable"
@@ -1532,7 +1529,6 @@ ppIdFlavor x = pp_cSEP <> case x of
    Entry            -> text "entry"
    LocalEntry       -> text "entry"
    Slow             -> text "slow"
-   RednCounts       -> text "ct"
    ConEntry loc      ->
       case loc of
         DefinitionSite -> text "con_entry"
