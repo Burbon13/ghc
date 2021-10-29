@@ -485,14 +485,14 @@ The Plain STG parameterisation
 
   Note [STG Extension points]
   ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
   We now make use of extension points in STG for different passes which want
   to associate information with AST nodes.
 
   Currently the pipeline is roughly:
 
   CoreToStg: Core -> Stg
-  SimplCore: Stg -> Stg
+  StgSimpl: Stg -> Stg
+  CodeGen: Stg -> Cmm
 
     As part of StgSimpl we run late lambda lifting (Ll).
     Late lambda lift:
@@ -875,11 +875,11 @@ pprStgRhs opts rhs = case rhs of
               4 (pprStgExpr opts body)
 
    StgRhsCon cc con mid _ticks args
-      -> hcat [ ppr cc, space, space
+      -> hcat [ ppr cc, space
               , case mid of
                   NoNumber -> empty
                   Numbered n -> hcat [ppr n, space]
-              -- I suppose the bang indicates this is an RHS instead of an conApp
+              -- The bang indicates this is an StgRhsCon instead of an StgConApp.
               , ppr con, text "! ", brackets (sep (map pprStgArg args))]
 
 instance OutputablePass pass => Outputable  (GenStgRhs pass) where
