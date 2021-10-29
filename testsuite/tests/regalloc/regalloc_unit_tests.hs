@@ -51,6 +51,8 @@ import GHC.Utils.Outputable
 import GHC.Types.Basic
 import GHC.Unit.Home
 import GHC.Unit.Finder
+import GHC.Unit.Env
+import GHC.Unit.Home.ModInfo
 import GHC.Driver.Config.Finder
 
 import GHC.Data.Stream as Stream (collect, yield)
@@ -128,7 +130,7 @@ compileCmmForRegAllocStats logger dflags cmmFile ncgImplF us = do
     let home_unit_graph = unitEnv_singleton
             (homeUnitId_ dflags)
             (mkHomeUnitEnv dflags emptyHomePackageTable Nothing)
-    hscEnv <- newHscEnv home_unit_graph
+    hscEnv <- newHscEnv (homeUnitId_ dflags) home_unit_graph
 
     -- parse the cmm file and output any warnings or errors
     let fake_mod = mkHomeModule (hsc_home_unit hscEnv) (mkModuleName "fake")
