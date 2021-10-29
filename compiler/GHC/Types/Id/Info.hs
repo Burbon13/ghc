@@ -217,6 +217,12 @@ What we do is:
 We primarily use this for workers where we mark strictly demanded arguments
 and arguments representing strict fields as call-by-value.
 
+I choose to put the information into a new Id constructor since these are loaded
+at all optimization levels. This makes it trivial to ensure the additional
+calling convention demands are available at all call sites. Putting it into
+IdInfo would require us to at the very least always always decode the IdInfo
+just to decide if we need to throw it away or not after.
+
 -}
 
 -- | Recursive Selector Parent

@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -O2 #-}
+{-# OPTIONS_GHC -O2 #-} -- See Note [-O2 Prelude]
 
 -- | Custom GHC "Prelude"
 --
@@ -20,7 +20,6 @@ module GHC.Prelude
 
 {- Note [-O2 Prelude]
 ~~~~~~~~~~~~~~~~~~~~~
-
 There is some code in GHC that is *always* compiled with -O[2] because
 of it's impact on compile time performance. Some of this code might depend
 on the definitions like shiftL being defined here being performant.
