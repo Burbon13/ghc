@@ -1806,21 +1806,6 @@ spec_one env fn arg_bndrs body (call_pat, rule_number)
               rule       = mkRule this_mod True {- Auto -} True {- Local -}
                                   rule_name inline_act fn_name qvars pats rule_rhs
                            -- See Note [Transfer activation]
-        -- ; pprTraceM "spec_constr:"
-        --   ( text "fn" <+> ppr fn $$
-        --     text "spec_arity" <+> ppr spec_arity $$
-        --     text "spec_join_arity" <+> ppr spec_join_arity $$
-        --     text "spec_lam_args" <+> ppr spec_lam_args $$
-        --     text "call_pat" <+> ppr call_pat $$
-        --     text "spec_sig" <+> ppr spec_sig $$
-        --     text "spec_body" <+> ppr spec_body $$
-        --     text "unfolds" <+> ppr (map (\x -> if isId x then Just (idUnfolding x) else Nothing) spec_lam_args) $$
-        --     text "spec_call_args" <+> ppr spec_call_args $$
-        --     -- text "unfolds" <+> ppr (map idUnfolding spec_call_args) $$
-        --     text "spec_id" <+> ppr spec_id $$
-        --     text "spec_usg" <+> ppr spec_usg $$
-        --     text "extra_bndrs" <+> ppr extra_bndrs
-        --   )
         ; return (spec_usg, OS { os_pat = call_pat, os_rule = rule
                                , os_id = spec_id
                                , os_rhs = spec_rhs }) }
@@ -1837,12 +1822,12 @@ calcSpecInfo :: Id                     -- The original function
 -- See Note [Strictness information in worker binders]
 calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
   | isJoinId fn    -- Join points have strictness and arity for LHS only
-  = ( bndrs_w_unfds
+  = ( bndrs_w_dmds
     , mkClosedDmdSig qvar_dmds div
     , count isId qvars
     , Just (length qvars) )
   | otherwise
-  = ( bndrs_w_unfds
+  = ( bndrs_w_dmds
     , mkClosedDmdSig (qvar_dmds ++ extra_dmds) div
     , count isId qvars + count isId extra_bndrs
     , Nothing )
@@ -1857,25 +1842,6 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
     bndrs_w_dmds =  set_arg_info qvars       qvar_dmds
                  ++ set_arg_info extra_bndrs extra_dmds
 
-    bndrs_w_unfds =
-        bndrs_w_dmds
-
-        -- pprTrace "spec_set_unfds"
-        --   (ppr bndrs_w_dmds $$ hang (text "pats") 2 (vcat $ (map ppr pats))) $
-          -- set_arg_unf bndrs_w_dmds pats
-
-    -- -- I think this version is *very* wrong.
-    -- set_arg_unf :: [Var] -> [CoreExpr] -> [Var]
-    -- set_arg_unf vars [] = vars -- Partially saturated call
-    -- set_arg_unf (v:vs) (p:ps)
-    --   | isId v
-    --   , exprIsHNF p
-    --   , isBoxedRuntimeRep (idType v) -- No point to attach OtherCon unfoldings to e.g. I#
-    --   = setStrUnfolding v MarkedCbv : set_arg_unf vs ps
-    --   | otherwise
-    --   = v : set_arg_unf vs ps
-    -- set_arg_unf [] _pats = [] -- Oversatured call
-
     set_arg_info :: [Var] -> [Demand] -> [Var]
     set_arg_info [] _   = []
     set_arg_info vs  [] = vs  -- Run out of demands
@@ -1884,20 +1850,13 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
       | otherwise = v' `seq` (v' : set_arg_info vs ds')
         where
           v'
-            | True --unlift_strict -- Never really a reason not to do this I think?
-            -- , isId v
-            , isStrUsedDmd d
+            | isStrUsedDmd d
             , not (isEvaldUnfolding (idUnfolding v))
             , not (isFunTy (idType v))
             = -- pprTrace "set_spec_unf_" (ppr v) $
               v `setStrUnfolding` MarkedStrict `setIdDemandInfo` d
             | otherwise = setIdDemandInfo v d
 
-    -- set_dmds :: [Var] -> [Demand] -> [Var]
-    -- set_dmds [] _   = []
-    -- set_dmds vs  [] = vs  -- Run out of demands
-    -- set_dmds (v:vs) ds@(d:ds') | isTyVar v = v                   : set_dmds vs ds
-    --                            | otherwise = setIdDemandInfo v d : set_dmds vs ds'
     dmd_env = go emptyVarEnv fn_dmds val_pats
 
     go :: DmdEnv -> [Demand] -> [CoreExpr] -> DmdEnv
