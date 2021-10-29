@@ -184,6 +184,14 @@ For functions we never make use of the tag info so we have two choices:
 I've done the former for now as it makes little difference in performance and
 makes things a lot simpler.
 
+Note [Tag inference debugging]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+There is a flag -dtag-inference-checks which inserts various
+compile/runtime checks in order to ensure the invariants this
+patch tries to uphold are upheld. It should cover all places
+where tags matter and disable optimizations which prevent us
+from running these checks.
+
 -}
 
 {- *********************************************************************
