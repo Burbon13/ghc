@@ -320,7 +320,7 @@ import Control.Monad    ( guard )
 --
 -- [Primitive]          Iff it is a built-in type that can't be expressed in Haskell.
 --
--- [Unlifted]           Anything that isn't lifted is considerd unlifted.
+-- [Unlifted]           Anything that isn't lifted is considered unlifted.
 --
 -- Currently, all primitive types are unlifted, but that's not necessarily
 -- the case: for example, @Int@ could be primitive.

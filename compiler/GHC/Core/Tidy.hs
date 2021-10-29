@@ -258,6 +258,7 @@ tidyLetBndr rec_tidy_env env@(tidy_env, var_env) id
         name'    = mkInternalName (idUnique id) occ' noSrcSpan
         details  = idDetails id
         id'      = mkLocalVar details name' mult' ty' new_info
+
         var_env' = extendVarEnv var_env id id'
         -- Note [Tidy IdInfo]
         -- We need to keep around any interesting strictness and

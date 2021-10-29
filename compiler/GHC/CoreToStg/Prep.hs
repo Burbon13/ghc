@@ -1427,13 +1427,6 @@ with this another way, as described in Note [Primop wrappers] in GHC.Builtin.Pri
 
 maybeSaturate :: Id -> CpeApp -> Int -> UniqSM CpeRhs
 maybeSaturate fn expr n_args
-  -- | isJust marks
-  -- , marks <- idCbvMarks_maybe fn
-  -- , undermarked <- fmap (\xs -> length xs > n_args) marks
-  -- , pprTrace "maybeSat" (text "fn:" <> ppr fn $$ text "exp:" <> ppr expr $$ text "n_args:" <> ppr n_args $$
-  --         text "marks:" <> ppr marks $$
-  --         text "undermarked:" <> ppr undermarked) False
-  -- = undefined
   | hasNoBinding fn        -- There's no binding
   = return sat_expr
 
@@ -1542,7 +1535,7 @@ tryEtaReducePrep bndrs expr@(App _ _)
     fvs_remaining = exprFreeVars remaining_expr
     (remaining_args, last_args) = splitAt n_remaining args
     n_remaining = length args - length bndrs
-    n_remaining_vals = length $ filter (isRuntimeArg) remaining_args
+    n_remaining_vals = length $ filter isRuntimeArg remaining_args
 
     ok bndr (Var arg) = bndr == arg
     ok _    _         = False

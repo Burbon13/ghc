@@ -226,7 +226,7 @@ data GeneralFlag
    | Opt_CprAnal
    | Opt_WorkerWrapper
    | Opt_WorkerWrapperUnlift -- ^ Try to pass strict (boxed!) lifted arguments unlifted.
-   | Opt_WorkerWrapperUnliftRec -- ^ Try to pass strict (boxed!) lifted arguments unlifted.
+   | Opt_WorkerWrapperUnliftRec -- ^ Try to pass strict (boxed!) lifted arguments unlifted only for recursive functions.
    | Opt_SolveConstantDicts
    | Opt_AlignmentSanitisation
    | Opt_CatchBottoms
