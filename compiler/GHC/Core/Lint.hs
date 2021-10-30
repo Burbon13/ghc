@@ -1197,10 +1197,7 @@ lintCoreArg (fun_ty, fun_ue) arg
          do { checkL (typeHasFixedRuntimeRep arg_ty)
                      (text "Argument does not have a fixed runtime representation"
                       <+> ppr arg <+> dcolon
-                      <+> parens (ppr arg_ty <+> dcolon <+> ppr (typeKind arg_ty)))
-
-            ; checkL (not (isUnliftedType arg_ty) || exprOkForSpeculation arg)
-                     (mkLetAppMsg arg) }
+                      <+> parens (ppr arg_ty <+> dcolon <+> ppr (typeKind arg_ty))) }
 
        ; lintValApp arg fun_ty arg_ty fun_ue arg_ue }
 
@@ -3138,11 +3135,6 @@ mkRhsMsg binder what ty
             ppr binder],
      hsep [text "Binder's type:", ppr (idType binder)],
      hsep [text "Rhs type:", ppr ty]]
-
-mkLetAppMsg :: CoreExpr -> SDoc
-mkLetAppMsg e
-  = hang (text "This argument does not satisfy the let/app invariant:")
-       2 (ppr e)
 
 badBndrTyMsg :: Id -> SDoc -> SDoc
 badBndrTyMsg binder what

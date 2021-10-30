@@ -56,7 +56,7 @@ import GHC.Types.Var.Env
 import GHC.Types.Var.Set
 import GHC.Data.OrdList
 import GHC.Types.Id as Id
-import GHC.Core.Make            ( mkWildValBinder )
+import GHC.Core.Make            ( mkWildValBinder, mkCoreLet )
 import GHC.Driver.Session       ( DynFlags )
 import GHC.Builtin.Types
 import GHC.Core.TyCo.Rep        ( TyCoBinder(..) )
@@ -636,7 +636,7 @@ wrapFloats :: SimplFloats -> OutExpr -> OutExpr
 -- satisfy the let/app invariant, so mkLets should do the job just fine
 wrapFloats (SimplFloats { sfLetFloats  = LetFloats bs _
                         , sfJoinFloats = jbs }) body
-  = foldrOL Let (wrapJoinFloats jbs body) bs
+  = foldrOL mkCoreLet (wrapJoinFloats jbs body) bs
      -- Note: Always safe to put the joins on the inside
      -- since the values can't refer to them
 

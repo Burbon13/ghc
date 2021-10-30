@@ -1582,7 +1582,9 @@ expr_ok primop_ok (Case scrut bndr _ alts)
 expr_ok primop_ok other_expr
   | (expr, args) <- collectArgs other_expr
   = case stripTicksTopE (not . tickishCounts) expr of
-        Var f            -> app_ok primop_ok f args
+        Var f ->
+           all (\a -> not (isValArg a && isUnliftedType (exprType a) && not (exprOkForSpeculation a))) args &&
+           app_ok primop_ok f args
 
         -- 'LitRubbish' is the only literal that can occur in the head of an
         -- application and will not be matched by the above case (Var /= Lit).
@@ -1930,7 +1932,9 @@ exprIsHNFlike is_con is_con_unf = is_hnf_like
     app_is_value (Tick _ f) nva = app_is_value f nva
     app_is_value (Cast f _) nva = app_is_value f nva
     app_is_value (App f a)  nva
-      | isValArg a              = app_is_value f (nva + 1)
+      | isValArg a              =
+        not (isUnliftedType (exprType a) && not (exprOkForSpeculation a)) &&
+        app_is_value f (nva + 1)
       | otherwise               = app_is_value f nva
     app_is_value _          _   = False
 
