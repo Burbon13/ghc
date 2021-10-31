@@ -4,9 +4,7 @@
 -- | A ModSummary is a node in the compilation manager's dependency graph
 -- (ModuleGraph)
 module GHC.Unit.Module.ModSummary
-   ( ExtendedModSummary (..)
-   , extendModSummaryNoDeps
-   , ModSummary (..)
+   ( ModSummary (..)
    , ms_unitid
    , ms_installed_mod
    , ms_mod_name
@@ -47,21 +45,6 @@ import GHC.Utils.Outputable
 
 import Data.Time
 
--- | Enrichment of 'ModSummary' with backpack dependencies
-data ExtendedModSummary = ExtendedModSummary
-  { emsModSummary :: {-# UNPACK #-} !ModSummary
-  , emsInstantiatedUnits :: [InstantiatedUnit]
-  -- ^ Extra backpack deps
-  -- NB: This is sometimes left empty in situations where the instantiated units
-  -- would not be used. See call sites of 'extendModSummaryNoDeps'.
-  }
-
-instance Outputable ExtendedModSummary where
-  ppr = \case
-    ExtendedModSummary ms bds -> ppr ms <+> ppr bds
-
-extendModSummaryNoDeps :: ModSummary -> ExtendedModSummary
-extendModSummaryNoDeps ms = ExtendedModSummary ms []
 
 -- | Data for a module node in a 'ModuleGraph'. Module nodes of the module graph
 -- are one of:

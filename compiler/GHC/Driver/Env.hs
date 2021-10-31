@@ -371,7 +371,7 @@ lookupType hsc_env name = do
 -- | Find the 'ModIface' for a 'Module', searching in both the loaded home
 -- and external package module information
 lookupIfaceByModule
-        :: HomeUnitGraph
+        :: HasCallStack => HomeUnitGraph
         -> PackageIfaceTable
         -> Module
         -> Maybe ModIface

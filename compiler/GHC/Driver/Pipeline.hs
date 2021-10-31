@@ -443,7 +443,7 @@ link' logger tmpfs dflags unit_env batch_attempt_linking hpt
                    return Succeeded
            else do
 
-        compilationProgressMsg logger (text "Linking " <> text exe_file <> text " ...")
+        --compilationProgressMsg logger (text "Linking " <> text exe_file <> text " ...")
 
         -- Don't showPass in Batch mode; doLink will do that for us.
         let link = case ghcLink dflags of

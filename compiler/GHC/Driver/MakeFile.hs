@@ -222,7 +222,7 @@ processDeps dflags _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
              , nest 2 $ ppr node ]
 processDeps dflags _ _ _ _ (AcyclicSCC (LinkNode {})) = return ()
 
-processDeps dflags hsc_env excl_mods root hdl (AcyclicSCC (ModuleNode _ (ExtendedModSummary node _)))
+processDeps dflags hsc_env excl_mods root hdl (AcyclicSCC (ModuleNode _ node))
   = do  { let extra_suffixes = depSuffixes dflags
               include_pkg_deps = depIncludePkgDeps dflags
               src_file  = msHsFilePath node
@@ -389,10 +389,9 @@ dumpModCycles logger module_graph
   | otherwise
   = putMsg logger (hang (text "Module cycles found:") 2 pp_cycles)
   where
-    topoSort = filterToposortToModules $
-      GHC.topSortModuleGraph True module_graph Nothing
+    topoSort = GHC.topSortModuleGraph True module_graph Nothing
 
-    cycles :: [[ModSummary]]
+    cycles :: [[ModuleGraphNode]]
     cycles =
       [ c | CyclicSCC c <- topoSort ]
 
@@ -400,12 +399,12 @@ dumpModCycles logger module_graph
                         $$ pprCycle c $$ blankLine
                      | (n,c) <- [1..] `zip` cycles ]
 
-pprCycle :: [ModSummary] -> SDoc
+pprCycle :: [ModuleGraphNode] -> SDoc
 -- Print a cycle, but show only the imports within the cycle
-pprCycle summaries = pp_group (CyclicSCC summaries)
+pprCycle summaries = error "MP:TODO" -- pp_group (CyclicSCC summaries)
   where
     cycle_mods :: [ModuleName]  -- The modules in this cycle
-    cycle_mods = map (moduleName . ms_mod) summaries
+    cycle_mods = map (moduleName . ms_mod) undefined -- summaries
 
     pp_group (AcyclicSCC ms) = pp_ms ms
     pp_group (CyclicSCC mss)
@@ -423,7 +422,7 @@ pprCycle summaries = pp_group (CyclicSCC summaries)
           loop_breaker = head boot_only
           all_others   = tail boot_only ++ others
           groups = filterToposortToModules $
-            GHC.topSortModuleGraph True (mkModuleGraph $ extendModSummaryNoDeps <$> all_others) Nothing
+            GHC.topSortModuleGraph True (undefined $ all_others) Nothing
 
     pp_ms summary = text mod_str <> text (take (20 - length mod_str) (repeat ' '))
                        <+> (pp_imps empty (map snd (ms_imps summary)) $$

@@ -89,7 +89,7 @@ parseOneFile libdir fileName = do
          ms <- liftIO $ summariseFile hsc_env (hsc_home_unit hsc_env) [] fileName Nothing Nothing
          case ms of
            Left _err -> error "parseOneFile"
-           Right ems -> parseModule (emsModSummary ems)
+           Right ems -> parseModule ems
 
 getPragmas :: Located HsModule -> String
 getPragmas (L _ (HsModule { hsmodAnn = anns'})) = pragmaStr

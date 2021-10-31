@@ -162,6 +162,7 @@ import GHC.TopHandler ( topHandler )
 
 import GHCi.Leak
 import GHC.Plugins (hsc_home_unit)
+import qualified GHC.Unit.Module.Graph as GHC
 
 -----------------------------------------------------------------------------
 
@@ -1637,7 +1638,7 @@ changeDirectory dir = do
         liftIO $ putStrLn "Warning: changing directory causes all loaded modules to be unloaded,\nbecause the search path has changed."
   -- delete targets and all eventually defined breakpoints (#1620)
   clearAllTargets
-  setContextAfterLoad False []
+  setContextAfterLoad False Nothing
   GHC.workingDirectoryChanged
   dir' <- expandPath dir
   liftIO $ setCurrentDirectory dir'
@@ -1692,7 +1693,7 @@ editFile str =
 -- Our strategy is to pick the first module that failed to load,
 -- or otherwise the first target.
 --
--- XXX: Can we figure out what happened if the depndecy analysis fails
+-- XXX: Can we figure out what happened if the dependency analysis fails
 --      (e.g., because the porgrammeer mistyped the name of a module)?
 -- XXX: Can we figure out the location of an error to pass to the editor?
 -- XXX: if we could figure out the list of errors that occurred during the
@@ -1700,11 +1701,12 @@ editFile str =
 -- of those.
 chooseEditFile :: GHC.GhcMonad m => m String
 chooseEditFile =
-  do let hasFailed x = fmap not $ GHC.isLoaded $ GHC.ms_mod_name x
+  do let hasFailed (GHC.ModuleNode deps x) = fmap not $ GHC.isLoaded $ GHC.ms_mod_name x
+         hasFailed _ = return False
 
      graph <- GHC.getModuleGraph
      failed_graph <-
-       GHC.mkModuleGraph . fmap extendModSummaryNoDeps <$> filterM hasFailed (GHC.mgModSummaries graph)
+       GHC.mkModuleGraph <$> filterM hasFailed (GHC.mgModSummaries' graph)
      let order g  = flattenSCCs $ filterToposortToModules $
            GHC.topSortModuleGraph True g Nothing
          pick xs  = case xs of
@@ -2137,34 +2139,36 @@ afterLoad ok retain_context = do
   discardTickArrays
   loaded_mods <- getLoadedModules
   modulesLoadedMsg ok loaded_mods
-  setContextAfterLoad retain_context loaded_mods
+  graph <- GHC.getModuleGraph
+  setContextAfterLoad retain_context (Just graph)
 
-setContextAfterLoad :: GhciMonad m => Bool -> [GHC.ModSummary] -> m ()
-setContextAfterLoad keep_ctxt [] = do
+setContextAfterLoad :: GhciMonad m => Bool -> Maybe GHC.ModuleGraph -> m ()
+setContextAfterLoad keep_ctxt Nothing = do
   setContextKeepingPackageModules keep_ctxt []
-setContextAfterLoad keep_ctxt ms = do
+setContextAfterLoad keep_ctxt (Just graph) = do
   -- load a target if one is available, otherwise load the topmost module.
   targets <- GHC.getTargets
-  case [ m | Just m <- map (findTarget ms) targets ] of
+  case [ m | Just m <- map (findTarget (GHC.mgModSummaries' graph)) targets ] of
         []    ->
-          let graph = GHC.mkModuleGraph $ extendModSummaryNoDeps <$> ms
-              graph' = flattenSCCs $ filterToposortToModules $
+          let graph' = flattenSCCs $ filterToposortToModules $
                 GHC.topSortModuleGraph True graph Nothing
-          in load_this (last graph')
+          in case graph' of
+              [] -> setContextKeepingPackageModules keep_ctxt []
+              xs -> load_this (last xs)
         (m:_) ->
           load_this m
  where
    findTarget mds t
-    = case filter (`matches` t) mds of
+    = case mapMaybe (`matches` t) mds of
         []    -> Nothing
         (m:_) -> Just m
 
-   summary `matches` Target { targetId = TargetModule m }
-        = GHC.ms_mod_name summary == m
-   summary `matches` Target { targetId = TargetFile f _ }
-        | Just f' <- GHC.ml_hs_file (GHC.ms_location summary)   = f == f'
-   _ `matches` _
-        = False
+   (GHC.ModuleNode _ summary) `matches` Target { targetId = TargetModule m }
+        = if GHC.ms_mod_name summary == m then Just summary else Nothing
+   (GHC.ModuleNode _ summary) `matches` Target { targetId = TargetFile f _ }
+        | Just f' <- GHC.ml_hs_file (GHC.ms_location summary)   =
+          if f == f' then Just summary else Nothing
+   _ `matches` _ = Nothing
 
    load_this summary | m <- GHC.ms_mod summary = do
         is_interp <- GHC.moduleIsInterpreted m
@@ -3119,7 +3123,7 @@ newDynFlags interactive_only minus_opts = do
             let units = preloadUnits (hsc_units hsc_env)
             liftIO $ Loader.loadPackages interp hsc_env units
           -- package flags changed, we can't re-use any of the old context
-          setContextAfterLoad False []
+          setContextAfterLoad False Nothing
           -- and copy the package flags to the interactive DynFlags
           idflags <- GHC.getInteractiveDynFlags
           GHC.setInteractiveDynFlags

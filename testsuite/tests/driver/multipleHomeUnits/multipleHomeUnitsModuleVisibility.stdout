@@ -1,3 +1,3 @@
 [1 of 3] Compiling MV1              ( module-visibility/MV1.hs, module-visibility/MV1.o )[mv]
-[2 of 3] Compiling MV2              ( module-visibility/MV2.hs, module-visibility/MV2.o )[mv]
-[3 of 3] Compiling MV               ( module-visibility-import/MV.hs, module-visibility-import/MV.o )[mvi]
+[2 of 3] Compiling MV               ( module-visibility-import/MV.hs, module-visibility-import/MV.o )[mvi]
+[3 of 3] Compiling MV2              ( module-visibility/MV2.hs, module-visibility/MV2.o )[mv]

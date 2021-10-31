@@ -1143,7 +1143,7 @@ upd_wired_in_mod wiredInMap (Module uid m) = Module (upd_wired_in_uid wiredInMap
 
 upd_wired_in_uid :: WiringMap -> Unit -> Unit
 upd_wired_in_uid wiredInMap u = case u of
-   HoleUnit                -> HoleUnit
+   HoleUnit -> HoleUnit
    RealUnit (Definite uid) -> RealUnit (Definite (upd_wired_in wiredInMap uid))
    VirtUnit indef_uid ->
       VirtUnit $ mkInstantiatedUnit

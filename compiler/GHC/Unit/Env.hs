@@ -262,10 +262,11 @@ isUnitEnvInstalledModule ue m = maybe False (`isHomeInstalledModule` m) hu
 
 type HomeUnitGraph = UnitEnvGraph HomeUnitEnv
 
-lookupHugByModule :: Module -> HomeUnitGraph -> Maybe HomeModInfo
-lookupHugByModule mod hug = do
-  env <- (unitEnv_lookup_maybe (toUnitId $ moduleUnit mod) hug)
-  lookupHptByModule (homeUnitEnv_hpt env) mod
+lookupHugByModule :: HasCallStack => Module -> HomeUnitGraph -> Maybe HomeModInfo
+lookupHugByModule mod hug
+  | otherwise = do
+      env <- (unitEnv_lookup_maybe (toUnitId $ moduleUnit mod) hug)
+      lookupHptByModule (homeUnitEnv_hpt env) mod
 
 lookupHugByModuleButNot :: UnitId -> Module -> HomeUnitGraph -> Maybe HomeModInfo
 lookupHugByModuleButNot cur_unit mod _ | toUnitId (moduleUnit mod) == cur_unit = Nothing

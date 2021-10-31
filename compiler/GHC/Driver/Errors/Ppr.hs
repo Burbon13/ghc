@@ -171,6 +171,12 @@ instance Diagnostic DriverMessage where
                    <> (pprWithUnitState state $ ppr (moduleUnit m))
                    <> text ") the module resides in isn't trusted."
                ]
+    DriverRedirectedNoMain mod_name
+      -> mkSimpleDecorated $ (text
+                       ("Output was redirected with -o, " ++
+                       "but no output will be generated.") $$
+                       (text "There is no module named" <+>
+                       quotes (ppr mod_name) <> text "."))
 
   diagnosticReason = \case
     DriverUnknownMessage m
@@ -216,6 +222,8 @@ instance Diagnostic DriverMessage where
     DriverPackageNotTrusted{}
       -> ErrorWithoutFlag
     DriverCannotImportFromUntrustedPackage{}
+      -> ErrorWithoutFlag
+    DriverRedirectedNoMain {}
       -> ErrorWithoutFlag
 
   diagnosticHints = \case
@@ -264,4 +272,6 @@ instance Diagnostic DriverMessage where
     DriverMarkedTrustworthyButInferredSafe{}
       -> noHints
     DriverCannotImportFromUntrustedPackage{}
+      -> noHints
+    DriverRedirectedNoMain {}
       -> noHints
