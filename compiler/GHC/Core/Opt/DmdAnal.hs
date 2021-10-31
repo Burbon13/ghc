@@ -349,8 +349,9 @@ dmdAnalStar env (n :* sd) e
   -- NB: (:*) expands AbsDmd and BotDmd as needed
   -- See Note [Analysing with absent demand]
   | WithDmdType dmd_ty e' <- dmdAnal env sd e
-  = assertPpr (not (isUnliftedType (exprType e)) || exprOkForSpeculation e) (ppr e)
+  = -- assertPpr (not (isUnliftedType (exprType e)) || exprOkForSpeculation e) (ppr e)
     -- The argument 'e' should satisfy the let/app invariant
+    -- TODO: Why is this invariant needed here?
     (toPlusDmdArg $ multDmdType n dmd_ty, e')
 
 -- Main Demand Analsysis machinery
