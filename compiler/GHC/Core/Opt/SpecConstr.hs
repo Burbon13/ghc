@@ -2281,7 +2281,7 @@ argToPat :: ScEnv
          -> ValueEnv                    -- ValueEnv at the call site
          -> CoreArg                     -- A call arg (or component thereof)
          -> ArgOcc
-         -> StrictnessMark              -- When recursing tells us if the current might be strict
+         -> StrictnessMark              -- When recursing, tells us if the current arg is strict
          -> UniqSM (Bool, CoreArg)
 
 -- Returns (interesting, pat),

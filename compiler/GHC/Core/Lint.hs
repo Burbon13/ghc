@@ -652,9 +652,8 @@ lintLetBind top_lvl rec_flag binder rhs rhs_ty
          -- NB: lintIdBinder has checked that it is not top-level bound
        ; case isJoinId_maybe binder of
             Nothing    -> return ()
-            Just arity -> do
-                checkL (isValidJoinPointType arity binder_ty)
-                    (mkInvalidJoinPointMsg binder binder_ty)
+            Just arity ->  checkL (isValidJoinPointType arity binder_ty)
+                                  (mkInvalidJoinPointMsg binder binder_ty)
 
        ; when (lf_check_inline_loop_breakers flags
                && isStableUnfolding (realIdUnfolding binder)
@@ -693,7 +692,6 @@ lintLetBind top_lvl rec_flag binder rhs rhs_ty
 
         -- We should check the unfolding, if any, but this is tricky because
         -- the unfolding is a SimplifiableCoreExpr. Give up for now.
-
 
 -- | Checks the RHS of bindings. It only differs from 'lintCoreExpr'
 -- in that it doesn't reject occurrences of the function 'makeStatic' when they
@@ -936,10 +934,10 @@ lintCoreExpr e@(App _ _)
        ; (arg3_ty, ue3) <- lintRunRWCont arg3
        ; app_ty <- lintValApp arg3 fun_ty2 arg3_ty ue2 ue3
        ; lintCoreArgs app_ty rest }
+
   | otherwise
   = do { pair <- lintCoreFun fun (length args)
-       ; lintCoreArgs pair args
-       }
+       ; lintCoreArgs pair args }
   where
     (fun, args) = collectArgs e
 
