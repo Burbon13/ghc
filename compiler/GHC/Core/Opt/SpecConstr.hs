@@ -1784,10 +1784,13 @@ spec_one env fn arg_bndrs body (call_pat, rule_number)
                   -- the function (see Note [Strictness information in worker binders])
 
               (spec_lam_args, spec_call_args,_) = mkWorkerArgs fn False
-                                                    spec_lam_args1 [] -- We don't care about cbv annotations here
+                                                    spec_lam_args1 []
                                                     spec_body_ty
                 -- mkWorkerArgs: usual w/w hack to avoid generating
-                -- a spec_rhs of unlifted type and no args
+                -- a spec_rhs of unlifted type and no args.
+                -- Unlike W/W we don't turn functions into strict workers
+                -- immediately here. But we could do so in the future.
+                -- See Note [Strict Worker Ids]. See Note [Tag Inference].
 
               spec_id    = mkLocalId spec_name Many
                                      (mkLamTypes spec_lam_args spec_body_ty)

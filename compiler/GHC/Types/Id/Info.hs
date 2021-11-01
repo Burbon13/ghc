@@ -202,7 +202,7 @@ runtime. This is all part of the TagInference work. See also Note [Tag Inference
 What we do is:
 * If we think a function might benefit from passing certain arguments unlifted
   for performance reasons we attach an evaldUnfolding to these arguments.
-* Potentially earlier, but at latest during Tidy VanillaIds with arguments that
+* Either during W/W, but at latest during Tidy VanillaIds with arguments that
   have evaldUnfoldings are turned into StrictWorkerIds.
 * During CorePrep calls to StrictWorkerIds are eta expanded.
 * During Stg CodeGen:
@@ -215,9 +215,12 @@ What we do is:
     we omit tag checks when using arguments marked as tagged.
 
 We primarily use this for workers where we mark strictly demanded arguments
-and arguments representing strict fields as call-by-value.
+and arguments representing strict fields as call-by-value during W/W. But we
+also check other functions during tidy and potentially turn some of them into
+strict workers and mark some of their arguments as call-by-value by looking at
+argument unfoldings.
 
-I choose to put the information into a new Id constructor since these are loaded
+NB: I choose to put the information into a new Id constructor since these are loaded
 at all optimization levels. This makes it trivial to ensure the additional
 calling convention demands are available at all call sites. Putting it into
 IdInfo would require us to at the very least always always decode the IdInfo

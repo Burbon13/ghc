@@ -752,7 +752,7 @@ mkWWBindPair :: WwOpts -> Id -> IdInfo
              -> [(Id, CoreExpr)]
 mkWWBindPair ww_opts fn_id fn_info fn_args fn_body work_uniq div
              (work_demands, cbv_marks :: [CbvMark], join_arity, wrap_fn, work_fn)
-  = -- pprTrace "mkWW" (ppr work_id) $
+  = -- pprTrace "mkWWBindPair" (ppr fn_id <+> ppr wrap_id <+> ppr work_id $$ ppr wrap_rhs) $
     [(work_id, work_rhs), (wrap_id, wrap_rhs)]
      -- Worker first, because wrapper mentions it
   where

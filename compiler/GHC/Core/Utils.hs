@@ -2463,7 +2463,14 @@ tryEtaReduce bndrs body
     ok_fun _fun                = False
 
     ---------------
-    ok_fun_id fun = fun_arity fun >= incoming_arity && idCbvMarkArity fun < incoming_arity
+    ok_fun_id fun = -- We can remove some arguments without leaving fun undersatured.
+                    fun_arity fun >= incoming_arity &&
+                    -- And the function doesn't require visible arguments as part of
+                    -- it's calling convention.
+                    idCbvMarkArity fun == 0 &&
+                    -- We always want args for join points so
+                    -- we should never eta-reduce to a trivial expression.
+                    not (isJoinId fun)
 
     ---------------
     fun_arity fun             -- See Note [Arity care]

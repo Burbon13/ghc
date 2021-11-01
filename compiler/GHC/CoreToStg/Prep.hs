@@ -1543,7 +1543,8 @@ tryEtaReducePrep bndrs expr@(App _ _)
     -- We can't eta reduce something which must be saturated.
     ok_to_eta_reduce (Var f) =  not (hasNoBinding f) &&
                                 not (isLinearType (idType f)) &&
-                                (idCbvMarkArity f <= n_remaining_vals)
+                                (idCbvMarkArity f <= n_remaining_vals) &&
+                                (not (isJoinId f) || idJoinArity f <= n_remaining) -- Don't undersaturate join points.
     ok_to_eta_reduce _       = False -- Safe. ToDo: generalise
 
 
