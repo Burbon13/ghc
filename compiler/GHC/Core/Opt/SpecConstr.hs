@@ -75,7 +75,6 @@ import GHC.Serialized   ( deserializeWithData )
 import Control.Monad    ( zipWithM )
 import Data.List (nubBy, sortBy, partition, dropWhileEnd, mapAccumL )
 import Data.Ord( comparing )
-import qualified GHC.Plugins as RHS
 
 {-
 -----------------------------------------------------
@@ -662,10 +661,6 @@ information on the argument binders to adjust the calling convention of
 `$wmerge0_s4UK` to enforce arguments being passed fully evaluated+tagged.
 See Note [Tag inference], Note [Strict Worker Ids] for more information on
 how we can tage advantage of this.
-
-We also set evaldUnfolding for strictly demanded arguments of specialized
-functions. This means they too will be passed call-by-value. Which generally
-is desireable. Again see Note [Tag inference].
 
 -----------------------------------------------------
                 Stuff not yet handled
@@ -1842,23 +1837,14 @@ calcSpecInfo fn (CP { cp_qvars = qvars, cp_args = pats }) extra_bndrs
     qvar_dmds  = [ lookupVarEnv dmd_env qv `orElse` topDmd | qv <- qvars, isId qv ]
     extra_dmds = dropList val_pats fn_dmds
 
-    bndrs_w_dmds =  set_arg_info qvars       qvar_dmds
-                 ++ set_arg_info extra_bndrs extra_dmds
+    bndrs_w_dmds =  set_dmds qvars       qvar_dmds
+                 ++ set_dmds extra_bndrs extra_dmds
 
-    set_arg_info :: [Var] -> [Demand] -> [Var]
-    set_arg_info [] _   = []
-    set_arg_info vs  [] = vs  -- Run out of demands
-    set_arg_info (v:vs) ds@(d:ds')
-      | isTyVar v = v  : set_arg_info vs ds
-      | otherwise = v' `seq` (v' : set_arg_info vs ds')
-        where
-          v'
-            | isStrUsedDmd d
-            , not (isEvaldUnfolding (idUnfolding v))
-            , not (isFunTy (idType v))
-            = -- pprTrace "set_spec_unf_" (ppr v) $
-              v `setStrUnfolding` MarkedStrict `setIdDemandInfo` d
-            | otherwise = setIdDemandInfo v d
+    set_dmds :: [Var] -> [Demand] -> [Var]
+    set_dmds [] _   = []
+    set_dmds vs  [] = vs  -- Run out of demands
+    set_dmds (v:vs) ds@(d:ds') | isTyVar v = v                   : set_dmds vs ds
+                               | otherwise = setIdDemandInfo v d : set_dmds vs ds'
 
     dmd_env = go emptyVarEnv fn_dmds val_pats
 
