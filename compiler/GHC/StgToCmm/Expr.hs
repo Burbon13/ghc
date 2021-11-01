@@ -293,7 +293,7 @@ We adopt (b) because that is more likely to put the heap check at the
 entry to a function, when not many things are live.  After a bunch of
 single-branch cases, we may have lots of things live
 
-Hence: two basic plans for
+Hence: Two basic plans for
 
         case e of r { alts }
 
@@ -307,6 +307,13 @@ Hence: two basic plans for
         ...restore current cost centre...
         ...code for alts...
         ...alts do their own heap checks
+
+   When using GcInAlts the return point for heap checks and evaluating
+   the scrutinee is shared. This does mean we might execute the actual
+   branching code twice but it's rare enough to not matter.
+   The huge advantage of this pattern is that we do not require multiple
+   info tables for returning from gc as they can be shared between all
+   cases. Reducing code size nicely.
 
 ------ Plan B: special case when ---------
   (i)  e does not allocate or call GC
@@ -323,12 +330,18 @@ Hence: two basic plans for
         ...code for alts...
         ...no heap check...
 
-   ------ Plan C: special case when ---------
+   There is a variant B.2 which we use if:
 
-  (i)  e is already evaluated
+  (i)   e is already evaluated+tagged
+  (ii)  We have multiple alternatives
+  (iii) and there is no upstream allocation.
 
-  Then heap allocation in the case branch
-  is replaced by an upstream check.
+  Here we also place one heap check before the `case` which
+  branches on `e`. Hopefully to be absorbed by an already existing
+  heap check further up. However the big differen in this case is that
+  there is no code for e. So we are not guaranteed that the heap
+  checks of the alts will be combined with an heap check further up.
+
   Very common example: Casing on strict fields.
 
         ...heap check...
@@ -337,35 +350,58 @@ Hence: two basic plans for
         ...code for alts...
         ...no heap check...
 
-  -- Reasoning for Plan C:
-   This is fairly similar to A, however there is no code to execute to
-   get the value of e.
-
-   When using GcInAlts the return point for heap checks and evaluating
-   the scrutinee is shared. This does mean we might execute the actual
-   branching code twice but it's rare enough to not matter.
-   The huge advantage of this pattern is that we do not require multiple
-   info tables for returning from gc as they can be shared between all
-   cases.
-
-   However when the scrutinee is already evaluated there is no evaluation
-   call. Instead we would end up with one info table per alternative.
+  -- Reasoning for Plan B.2:
+   Since the scrutinee is already evaluated there is no evaluation
+   call which would force a info table that we can use as a shared
+   return point.
+   This means currently if we were to do GcInAlts like in Plan A then
+   we would end up with one info table per alternative.
 
    To avoid this we unconditionally do gc outside of the alts with all
    the pros and cons described in Note [Compiling case expressions].
+   Rewriting the logic to generate a shared return point before the case
+   expression while keeping the heap checks in the alternatives would be
+   possible. But it's unclear to me that this would actually be an improvement.
+
+   This means if we have code along these lines:
+
+      g x y = case x of
+         True -> Left $ (y + 1,y,y-1)
+         False -> Right $! y - (2 :: Int)
+
+   We get these potential heap check placements:
+
+   f = ...
+      !max(L,R)!; -- Might be absorbed upstream.
+      case x of
+         True  -> !L!; ...L...
+         False -> !R!; ...R...
+
+   And we place a heap check at !max(L,R)!
+
+   The downsides of using !max(L,R)! are:
+
+   * If f is recursive, and the hot loop wouldn't allocate, but the exit branch does then we do
+   a redundant heap check.
+   * We use one more instruction to de-allocate the unused heap in the branch using less heap. (Neglible)
+   * A small risk of running gc slightly more often than needed especially if one branch allocates a lot.
+
+   The upsides are:
+   * May save a heap overflow test if there is an upstream check already.
+   * If the heap check is absorbed upstream we can also eliminate it's info table.
+   * We generate at most one heap check (versus one per alt otherwise).
+   * No need to save volatile vars etc across heap checks in !L!, !R!
+   * We can use relative addressing from a single Hp to get at all the closures so allocated. (seems neglible)
+   * It feats neatly in the logic we already have for handling A/B
 
    For containers:Data/Sequence/Internal/Sorting.o the difference is
-   about 10% in terms of code size.
+   about 10% in terms of code size compared to using Plan A for this case.
+   The main downside is we might put heap checks into loops, even if we
+   could avoid it (See Note [Compiling case expressions]).
 
-   For nofib it's about -0.5% reduction in Module size with this approach
-   while the benefit without it is almost meaningless at a reported -0.1%.
-
-   There is still the issue with putting heap checks into loops,
-   but we are not really worse of than we would be when checking
-   if a scrutinee is evaluated.
-
-   TODO: Investigate what is required to instead create a shared return
-   point for all the GC calls in the alts.
+   Potential improvement: Investigate if heap checks in alts would be an
+   improvement if we generate and use a shared return point that is placed
+   in the common path for all alts.
 
 -}
 
