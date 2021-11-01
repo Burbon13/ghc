@@ -61,7 +61,7 @@ checkConArgsStatic msg con args = whenCheckTags $ do
 checkConArgsDyn :: SDoc -> DataCon -> [StgArg] -> FCode ()
 checkConArgsDyn msg con args = whenCheckTags $ do
   let marks = dataConRuntimeRepStrictness con
-  zipWithM_ (checkArgStatic msg) marks args
+  zipWithM_ (checkArg msg) (map cbvFromStrictMark marks) args
 
 whenCheckTags :: FCode () -> FCode ()
 whenCheckTags act = do
