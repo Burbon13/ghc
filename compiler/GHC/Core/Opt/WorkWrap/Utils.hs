@@ -13,7 +13,7 @@ module GHC.Core.Opt.WorkWrap.Utils
    , DataConPatContext(..)
    , UnboxingDecision(..), InsideInlineableFun(..), wantToUnboxArg
    , findTypeShape, IsRecDataConResult(..), isRecDataCon, finaliseBoxity
-   , findTypeShape, mkAbsentFiller, IsRecDataConResult(..), isRecDataCon
+   , mkAbsentFiller
    , isWorkerSmallEnough, isGoodWorker, WorkerQuality
    , badWorker , goodWorker
    )
@@ -1073,8 +1073,6 @@ mkAbsentFiller :: WwOpts -> Id -> Maybe CoreExpr
 mkAbsentFiller opts arg
   -- The lifted case: Bind 'absentError' for a nice panic message if we are
   -- wrong (like we were in #11126). See (1) in Note [Absent fillers]
-
-  -- TODO: Reenable. This is just a dirty hack around #19766
   | not (isUnliftedType arg_ty)
   , not is_strict, not is_evald -- See (2) in Note [Absent fillers]
   = Just (mkAbsentErrorApp arg_ty msg)
@@ -1085,8 +1083,8 @@ mkAbsentFiller opts arg
   = mkLitRubbish arg_ty
 
   where
-    is_strict = isStrictDmd (idDemandInfo arg)
     arg_ty    = idType arg
+    is_strict = isStrictDmd (idDemandInfo arg)
     is_evald  = isEvaldUnfolding $ idUnfolding arg
 
     msg = renderWithContext
