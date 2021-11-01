@@ -6,12 +6,13 @@ import GHC
 import GHC.Driver.Make
 import GHC.Driver.Session
 import GHC.Driver.Env
-import GHC.Unit.Module.ModSummary (ExtendedModSummary(..))
+import GHC.Unit.Module.Graph
 import GHC.Unit.Finder
 
 import Control.Monad.IO.Class (liftIO)
 import Data.List (sort, stripPrefix)
 import Data.Either
+import Data.Maybe
 
 import System.Environment
 import System.Directory
@@ -52,14 +53,14 @@ main = do
     createDirectoryIfMissing False "mydir"
     renameFile "B.hs" "mydir/B.hs"
 
-    emss <- downsweep hsc_env [] [] False
+    (_, nodes) <- downsweep hsc_env [] [] False
 
     -- If 'checkSummaryTimestamp' were to call 'addHomeModuleToFinder' with
     -- (ms_location old_summary) like summariseFile used to instead of
     -- using the 'location' parameter we'd end up using the old location of
     -- the "B" module in this test. Make sure that doesn't happen.
 
-    hPrint stderr $ sort (map (ml_hs_file . ms_location) (map emsModSummary (rights emss)))
+    hPrint stderr $ sort (map (ml_hs_file . ms_location) (mapMaybe moduleGraphNodeModule nodes))
 
 writeMod :: [String] -> IO ()
 writeMod src@(head -> stripPrefix "module " -> Just (takeWhile (/=' ') -> mod))

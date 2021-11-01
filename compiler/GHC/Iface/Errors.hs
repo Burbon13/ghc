@@ -146,7 +146,7 @@ mayShowLocations dflags files
           hang (text "Locations searched:") 2 $ vcat (map text files)
 
 cannotFindModule :: HasCallStack => HscEnv -> ModuleName -> FindResult -> SDoc
-cannotFindModule hsc_env = pprTrace "cannotFind" callStackDoc $ cannotFindModule'
+cannotFindModule hsc_env = cannotFindModule'
     (hsc_dflags   hsc_env)
     (hsc_unit_env hsc_env)
     (targetProfile (hsc_dflags hsc_env))

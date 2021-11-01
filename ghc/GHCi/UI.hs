@@ -2148,16 +2148,20 @@ setContextAfterLoad keep_ctxt Nothing = do
 setContextAfterLoad keep_ctxt (Just graph) = do
   -- load a target if one is available, otherwise load the topmost module.
   targets <- GHC.getTargets
-  case [ m | Just m <- map (findTarget (GHC.mgModSummaries' graph)) targets ] of
+  loaded_graph <- filterM is_loaded $ GHC.mgModSummaries' graph
+  case [ m | Just m <- map (findTarget loaded_graph) targets ] of
         []    ->
           let graph' = flattenSCCs $ filterToposortToModules $
-                GHC.topSortModuleGraph True graph Nothing
+                GHC.topSortModuleGraph True (GHC.mkModuleGraph loaded_graph) Nothing
           in case graph' of
               [] -> setContextKeepingPackageModules keep_ctxt []
               xs -> load_this (last xs)
         (m:_) ->
           load_this m
  where
+   is_loaded (GHC.ModuleNode _ ms) = GHC.isLoaded (ms_mod_name ms)
+   is_loaded _ = return False
+
    findTarget mds t
     = case mapMaybe (`matches` t) mds of
         []    -> Nothing
