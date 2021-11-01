@@ -122,7 +122,7 @@ import GHC.Unit.Module.ModDetails
 import GHC.Unit.Module.Graph
 import GHC.Unit.Home.ModInfo
 
-import Data.Either ( rights, partitionEithers )
+import Data.Either ( rights, partitionEithers, lefts )
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified GHC.Data.FiniteMap as Map ( insertListWith )
@@ -1509,7 +1509,7 @@ downsweep :: HscEnv
 downsweep hsc_env old_summaries excl_mods allow_dup_roots
    = do
        rootSummaries <- mapM getRootSummary roots
-       let (errs, rootSummariesOk) = partitionEithers rootSummaries -- #17549
+       let (root_errs, rootSummariesOk) = partitionEithers rootSummaries -- #17549
            root_map = mkRootMap rootSummariesOk
       -- TODO: MP
 --       checkDuplicates root_map
@@ -1520,18 +1520,20 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
        -- See Note [-fno-code mode] #8025
        let unit_env = hsc_unit_env hsc_env
        let tmpfs    = hsc_tmpfs    hsc_env
-       -- MP: TODO this is wrong
-       let map1 = map0
-       --map1 <- case backend dflags of
-       --  NoBackend   -> enableCodeGenForTH logger tmpfs unit_env map0
-       --  _           -> return map0
-       let all_ems = concat $ concat $ (map modNodeMapElems $ M.elems map1)
+
+       let downsweep_errs = lefts $ concat $ concat $ (map modNodeMapElems $ M.elems map0)
            downsweep_nodes = M.elems deps
 
-           unit_nodes = unitEnv_foldWithKey (\nodes uid hue -> nodes ++ unitModuleNodes downsweep_nodes uid hue) [] (hsc_HUG hsc_env)
-       if null errs
-         then pure $ partitionEithers (map Right downsweep_nodes ++ unit_nodes)
-         else pure $ ((map snd errs), [])
+           (other_errs, unit_nodes) = partitionEithers $ unitEnv_foldWithKey (\nodes uid hue -> nodes ++ unitModuleNodes downsweep_nodes uid hue) [] (hsc_HUG hsc_env)
+           all_nodes = downsweep_nodes ++ unit_nodes
+           all_errs  = map snd root_errs ++  downsweep_errs ++ other_errs
+
+       th_enabled_nodes <- case backend dflags of
+                              NoBackend -> enableCodeGenForTH logger tmpfs unit_env all_nodes
+                              _ -> return all_nodes
+       if null root_errs
+         then return (all_errs, th_enabled_nodes)
+         else pure $ (map snd root_errs, [])
      where
         -- Dependencies arising on a unit (backpack and module linking deps)
         unitModuleNodes :: [ModuleGraphNode] -> UnitId -> HomeUnitEnv -> [Either (Messages DriverMessage) ModuleGraphNode]
@@ -1692,8 +1694,8 @@ enableCodeGenForTH
   :: Logger
   -> TmpFs
   -> UnitEnv
-  -> ModNodeMap [Either DriverMessages ModSummary]
-  -> IO (ModNodeMap [Either DriverMessages ModSummary])
+  -> [ModuleGraphNode]
+  -> IO [ModuleGraphNode]
 enableCodeGenForTH logger tmpfs unit_env =
   enableCodeGenWhen logger tmpfs condition should_modify TFL_CurrentModule TFL_GhcSession unit_env
   where
@@ -1718,22 +1720,21 @@ enableCodeGenWhen
   -> TempFileLifetime
   -> TempFileLifetime
   -> UnitEnv
-  -> ModNodeMap [Either DriverMessages ModSummary]
-  -> IO (ModNodeMap [Either DriverMessages ModSummary])
-enableCodeGenWhen logger tmpfs condition should_modify staticLife dynLife unit_env nodemap =
-  traverse (traverse (traverse enable_code_gen)) nodemap
+  -> [ModuleGraphNode]
+  -> IO [ModuleGraphNode]
+enableCodeGenWhen logger tmpfs condition should_modify staticLife dynLife unit_env mod_graph =
+  mapM enable_code_gen mod_graph
   where
     defaultBackendOf ms = platformDefaultBackend (targetPlatform $ ue_unitFlags (ms_unitid ms) unit_env)
-    enable_code_gen :: ModSummary -> IO ModSummary
-    enable_code_gen ms
+    enable_code_gen :: ModuleGraphNode -> IO ModuleGraphNode
+    enable_code_gen n@(ModuleNode deps ms)
       | ModSummary
-        { ms_mod = ms_mod
-        , ms_location = ms_location
+        { ms_location = ms_location
         , ms_hsc_src = HsSrcFile
         , ms_hspp_opts = dflags
         } <- ms
       , should_modify ms
-      , ms_mod `Set.member` needs_codegen_set
+      , mkNodeKey n `Set.member` needs_codegen_set
       = do
         let new_temp_file suf dynsuf = do
               tn <- newTempName logger tmpfs (tmpDir dflags) staticLife suf
@@ -1760,38 +1761,20 @@ enableCodeGenWhen logger tmpfs condition should_modify staticLife dynLife unit_e
                               , ml_dyn_obj_file = dyn_o_file }
               , ms_hspp_opts = updOptLevel 0 $ dflags {backend = defaultBackendOf ms}
               }
-        pure ms'
-      | otherwise = return ms
+        pure (ModuleNode deps ms')
+    enable_code_gen ms = return ms
 
-    needs_codegen_set = undefined -- transitive_deps_set
-      [ ms
-      | mss <- modNodeMapElems nodemap
-      , Right ms <- mss
+
+    (mg, lookup_node) = moduleGraphNodes False mod_graph
+    needs_codegen_set = Set.fromList $ map (mkNodeKey . node_payload) $ reachablesG mg (map (expectJust "needs_th" . lookup_node) has_th_set)
+
+
+    has_th_set =
+      [ mkNodeKey mn
+      | mn@(ModuleNode _ ms) <- mod_graph
       , condition ms
       ]
 
-{-
-    -- find the set of all transitive dependencies of a list of modules.
-    transitive_deps_set :: [ModSummary] -> Set.Set Module
-    transitive_deps_set modSums = foldl' go Set.empty modSums
-      where
-        go marked_mods ms@ModSummary{ms_mod}
-          | ms_mod `Set.member` marked_mods = marked_mods
-          | otherwise =
-            let deps =
-                  [ dep_ms
-                  -- If a module imports a boot module, msDeps helpfully adds a
-                  -- dependency to that non-boot module in it's result. This
-                  -- means we don't have to think about boot modules here.
-                  | (dep, uid) <- msDeps ms
-                  , NotBoot == gwib_isBoot dep
-                  , dep_ms_0 <- toList $ modNodeMapLookup (ModNodeKeyWithUid (unLoc <$> dep, uid)) nodemap
-                  , dep_ms_1 <- toList $ dep_ms_0
-                  , (ExtendedModSummary { emsModSummary = dep_ms }) <- toList $ dep_ms_1
-                  ]
-                new_marked_mods = Set.insert ms_mod marked_mods
-            in foldl' go new_marked_mods deps
-            -}
 
 mkRootMap
   :: [ModSummary]
