@@ -85,10 +85,11 @@ tidyBind env (Rec prs)
 -- if we look at the types of the arguments. But that's ok
 -- we only check if the manifest lambdas have OtherCon unfoldings
 -- and these remain valid post tidy.
+-- See also Note [Strict Worker Ids]
 
-
+-- See Note [Attaching CBV Marks to ids]
 tidyCbvInfo :: HasCallStack => Id -> CoreExpr -> Id
-tidyCbvInfo id rhs =
+tidyCbvInfo id rhs = cbv_bndr
   -- pprTrace "tidyBindDetail"
   --     (ppr id $$
   --     --  ppr ((prettyCallStack callStack)) $$
@@ -103,9 +104,7 @@ tidyCbvInfo id rhs =
   -- * Look at the args
   -- * Mark any with Unf=OtherCon[] as cbv
   -- * Potentially combine it with existing marks (from ww)
-  -- Update the id
-  let
-  in cbv_bndr
+  -- * Update the id
   where
     (_,val_args,_body) = collectTyAndValBinders rhs
     new_marks = mkCbvMarks val_args
@@ -127,7 +126,7 @@ tidyCbvInfo id rhs =
     isMultiValArg id =
       let ty = idType id
       in not (isStateType ty) && (isUnboxedTupleType ty || isUnboxedSumType ty)
-    -- Only covered actually strict arguments.
+    -- Only keep relevant marks. We *don't* have to cover all marks.
     mkCbvMarks :: [Id] -> [CbvMark]
     mkCbvMarks = reverse . dropWhile (not . isMarkedCbv) .  reverse . map mkMark
       where
