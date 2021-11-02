@@ -220,7 +220,7 @@ processDeps dflags _ _ _ _ (AcyclicSCC (InstantiationNode _uid node))
       showSDoc dflags $
         vcat [ text "Unexpected backpack instantiation in dependency graph while constructing Makefile:"
              , nest 2 $ ppr node ]
-processDeps dflags _ _ _ _ (AcyclicSCC (LinkNode {})) = return ()
+processDeps _dflags _ _ _ _ (AcyclicSCC (LinkNode {})) = return ()
 
 processDeps dflags hsc_env excl_mods root hdl (AcyclicSCC (ModuleNode _ node))
   = do  { let extra_suffixes = depSuffixes dflags
@@ -396,23 +396,23 @@ dumpModCycles logger module_graph
       [ c | CyclicSCC c <- topoSort ]
 
     pp_cycles = vcat [ (text "---------- Cycle" <+> int n <+> text "----------")
-                        $$ pprCycle c $$ blankLine
+                        $$ _pprCycle c $$ blankLine
                      | (n,c) <- [1..] `zip` cycles ]
 
-pprCycle :: [ModuleGraphNode] -> SDoc
+_pprCycle :: [ModuleGraphNode] -> SDoc
 -- Print a cycle, but show only the imports within the cycle
-pprCycle summaries = error "MP:TODO" -- pp_group (CyclicSCC summaries)
+_pprCycle _summaries = error "MP:TODO" -- pp_group (CyclicSCC summaries)
   where
-    cycle_mods :: [ModuleName]  -- The modules in this cycle
-    cycle_mods = map (moduleName . ms_mod) undefined -- summaries
+    _cycle_mods :: [ModuleName]  -- The modules in this cycle
+    _cycle_mods = map (moduleName . ms_mod) undefined -- summaries
 
-    pp_group (AcyclicSCC ms) = pp_ms ms
-    pp_group (CyclicSCC mss)
+    _pp_group (AcyclicSCC ms) = pp_ms ms
+    _pp_group (CyclicSCC mss)
         = assert (not (null boot_only)) $
                 -- The boot-only list must be non-empty, else there would
                 -- be an infinite chain of non-boot imports, and we've
                 -- already checked for that in processModDeps
-          pp_ms loop_breaker $$ vcat (map pp_group groups)
+          pp_ms loop_breaker $$ vcat (map _pp_group groups)
         where
           (boot_only, others) = partition is_boot_only mss
           is_boot_only ms = not (any in_group (map snd (ms_imps ms)))
@@ -433,7 +433,7 @@ pprCycle summaries = error "MP:TODO" -- pp_group (CyclicSCC summaries)
     pp_imps :: SDoc -> [Located ModuleName] -> SDoc
     pp_imps _    [] = empty
     pp_imps what lms
-        = case [m | L _ m <- lms, m `elem` cycle_mods] of
+        = case [m | L _ m <- lms, m `elem` _cycle_mods] of
             [] -> empty
             ms -> what <+> text "imports" <+>
                                 pprWithCommas ppr ms

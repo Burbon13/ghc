@@ -35,7 +35,6 @@ import GHC.Types.Unique.DFM
 import GHC.Utils.Outputable
 import Data.List (sortOn)
 import Data.Ord
-import GHC.Utils.Trace
 
 -- | Information about modules in the package being compiled
 data HomeModInfo = HomeModInfo

@@ -117,7 +117,6 @@ import qualified Data.Map as Map
 import qualified Data.Map.Strict as MapStrict
 import qualified Data.Set as Set
 import GHC.LanguageExtensions
-import GHC.Utils.Trace
 import qualified Data.Set as S
 
 -- ---------------------------------------------------------------------------

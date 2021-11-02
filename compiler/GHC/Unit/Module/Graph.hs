@@ -203,7 +203,7 @@ filterToposortToModules
 filterToposortToModules = mapMaybe $ mapMaybeSCC $ \case
   InstantiationNode _ _ -> Nothing
   LinkNode{} -> Nothing
-  ModuleNode deps node -> Just node
+  ModuleNode _deps node -> Just node
   where
     -- This higher order function is somewhat bogus,
     -- as the definition of "strongly connected component"
@@ -217,7 +217,7 @@ filterToposortToModules = mapMaybe $ mapMaybeSCC $ \case
         as -> Just $ CyclicSCC as
 
 showModMsg :: DynFlags -> Bool -> ModuleGraphNode -> SDoc
-showModMsg dflags _ (LinkNode uid deps) =
+showModMsg dflags _ (LinkNode {}) =
       let staticLink = case ghcLink dflags of
                           LinkStaticLib -> True
                           _ -> False

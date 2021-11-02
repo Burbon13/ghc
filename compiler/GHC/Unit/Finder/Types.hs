@@ -34,8 +34,8 @@ data InstalledFindResult
   | InstalledNotFound [FilePath] (Maybe UnitId)
 
 instance Outputable InstalledFindResult where
-  ppr (InstalledFound ml im) = text "FOUND"
-  ppr (InstalledNoPackage uid) = text "NOPACKAGE"
+  ppr (InstalledFound {}) = text "FOUND"
+  ppr (InstalledNoPackage {}) = text "NOPACKAGE"
   ppr (InstalledNotFound {})  = text "NOT FOUND"
 
 -- | The result of searching for an imported module.

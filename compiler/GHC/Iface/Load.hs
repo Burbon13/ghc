@@ -119,6 +119,7 @@ import System.FilePath
 import System.Directory
 import GHC.Driver.Env.KnotVars
 import Data.Bifunctor
+import GHC.Stack
 
 {-
 ************************************************************************
@@ -418,7 +419,7 @@ loadInterfaceWithException doc mod_name where_from
     withException ctx (loadInterface doc mod_name where_from)
 
 ------------------
-loadInterface :: SDoc -> Module -> WhereFrom
+loadInterface :: HasCallStack => SDoc -> Module -> WhereFrom
               -> IfM lcl (MaybeErr SDoc ModIface)
 
 -- loadInterface looks in both the HPT and PIT for the required interface

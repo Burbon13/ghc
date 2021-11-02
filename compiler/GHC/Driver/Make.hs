@@ -109,7 +109,6 @@ import GHC.Types.SourceError
 import GHC.Types.SrcLoc
 import GHC.Types.Unique.FM
 import GHC.Types.Unique.DSet
-import GHC.Types.Unique.Set
 import GHC.Types.Name
 import GHC.Types.Name.Env
 
@@ -134,10 +133,9 @@ import Control.Monad
 import Control.Monad.Trans.Except ( ExceptT(..), runExceptT, throwE )
 import qualified Control.Monad.Catch as MC
 import Data.IORef
-import Data.Foldable (toList)
 import Data.Maybe
 import Data.Time
-import Data.Bifunctor (first, Bifunctor (second))
+import Data.Bifunctor (first)
 import System.Directory
 import System.FilePath
 import System.IO        ( fixIO )
@@ -145,7 +143,7 @@ import System.IO        ( fixIO )
 import GHC.Conc ( getNumProcessors, getNumCapabilities, setNumCapabilities )
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
-import GHC.Driver.Pipeline.LogQueue
+import GHC.Driver.Pipeline.LogQueuePar
 import qualified Data.Map.Strict as M
 import GHC.Types.TypeEnv
 import Control.Monad.Trans.State.Lazy
@@ -154,11 +152,7 @@ import GHC.Driver.Env.KnotVars
 import Control.Concurrent.STM
 import Control.Monad.Trans.Maybe
 import GHC.Runtime.Loader
-import GHC.Unit.Module
-import GHC.Unit.Types
-import Data.Coerce
 import GHC.Utils.Trace
-import Data.List (find)
 
 
 -- -----------------------------------------------------------------------------
@@ -229,7 +223,7 @@ depanalPartial excluded_mods allow_dup_roots = do
   hsc_env <- getSession
   let
          targets = hsc_targets hsc_env
-         old_graph = hsc_mod_graph hsc_env
+         _old_graph = hsc_mod_graph hsc_env
          logger  = hsc_logger hsc_env
 
   withTiming logger (text "Chasing dependencies") (const ()) $ do
@@ -627,14 +621,6 @@ loadFinish :: GhcMonad m => SuccessFlag -> m SuccessFlag
 loadFinish all_ok
   = do modifySession discardIC
        return all_ok
-
-
--- | Forget the current program, but retain the persistent info in HscEnv
-discardProg :: HscEnv -> HscEnv
-discardProg hsc_env
-  = discardIC
-    $ hscUpdateHPT (const emptyHomePackageTable)
-    $ hsc_env { hsc_mod_graph = emptyMG }
 
 -- | Discard the contents of the InteractiveContext, but keep the DynFlags and
 -- the loaded plugins.  It will also keep ic_int_print and ic_monad if their
@@ -1325,7 +1311,7 @@ summaryNodeSummary = node_payload
 -- have the most up to date information.
 nodeDependencies :: Bool -> ModuleGraphNode -> [NodeKey]
 nodeDependencies drop_hs_boot_nodes = \case
-    LinkNode uleid deps -> deps
+    LinkNode _uleid deps -> deps
     InstantiationNode uid iuid ->
       NodeKey_Module . (\mod -> ModNodeKeyWithUid (GWIB mod NotBoot) uid)  <$> uniqDSetToList (instUnitHoles iuid)
     ModuleNode deps ms ->
@@ -1405,8 +1391,8 @@ modNodeMapElems (ModNodeMap m) = Map.elems m
 modNodeMapLookup :: ModNodeKey -> ModNodeMap a -> Maybe a
 modNodeMapLookup k (ModNodeMap m) = Map.lookup k m
 
-modNodeMapKeys :: ModNodeMap a -> [ModuleNameWithIsBoot]
-modNodeMapKeys = M.keys . unModNodeMap
+_modNodeMapKeys :: ModNodeMap a -> [ModuleNameWithIsBoot]
+_modNodeMapKeys = M.keys . unModNodeMap
 
 modNodeMapSingleton :: ModNodeKey -> a -> ModNodeMap a
 modNodeMapSingleton k v = ModNodeMap (M.singleton k v)
@@ -1422,7 +1408,7 @@ mkNodeKey :: ModuleGraphNode -> NodeKey
 mkNodeKey = \case
   InstantiationNode _uid x -> NodeKey_Unit x
   ModuleNode _ x -> NodeKey_Module $ msKey x -- mkHomeBuildModule0 (emsModSummary x)
-  LinkNode uid deps -> NodeKey_Link uid
+  LinkNode uid _deps -> NodeKey_Link uid
 
 mkHomeBuildModule0 :: ModSummary -> ModuleNameWithIsBoot
 mkHomeBuildModule0 ms = GWIB
@@ -1432,11 +1418,6 @@ mkHomeBuildModule0 ms = GWIB
 
 msKey :: ModSummary -> ModNodeKeyWithUid
 msKey ms = ModNodeKeyWithUid (mkHomeBuildModule0 ms) (ms_unitid ms)
-
-pprNodeKey :: NodeKey -> SDoc
-pprNodeKey (NodeKey_Unit iu) = ppr iu
-pprNodeKey (NodeKey_Module mk) = ppr mk
-pprNodeKey (NodeKey_Link uid) = ppr uid
 
 {-
 mkNodeMap :: [ModSummary] -> ModNodeMap ModSummary
@@ -1498,13 +1479,13 @@ downsweep :: HscEnv
                 -- The non-error elements of the returned list all have distinct
                 -- (Modules, IsBoot) identifiers, unless the Bool is true in
                 -- which case there can be repeats
-downsweep hsc_env old_summaries excl_mods allow_dup_roots
+downsweep hsc_env _old_summaries excl_mods allow_dup_roots
    = do
        rootSummaries <- mapM getRootSummary roots
        let (root_errs, rootSummariesOk) = partitionEithers rootSummaries -- #17549
            root_map = mkRootMap rootSummariesOk
       -- TODO: MP
---       checkDuplicates root_map
+       checkDuplicates root_map
        (deps, map0) <- loop1 rootSummariesOk (M.empty, root_map)
        -- if we have been passed -fno-code, we enable code generation
        -- for dependencies of modules that have -XTemplateHaskell,
@@ -1541,8 +1522,8 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
         roots  = hsc_targets hsc_env
 
         -- TODO: MP
-        old_summary_map :: ModNodeMap ModSummary
-        old_summary_map = emptyModNodeMap -- mkNodeMap old_summaries
+        _old_summary_map :: ModNodeMap ModSummary
+        _old_summary_map = emptyModNodeMap -- mkNodeMap old_summaries
 
         getRootSummary :: Target -> IO (Either (UnitId, DriverMessages) ModSummary)
         getRootSummary Target { targetId = TargetFile file mb_phase
@@ -1578,9 +1559,9 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
         -- defining the same module (otherwise the duplicates will be silently
         -- ignored, leading to confusing behaviour).
         checkDuplicates
-          :: ModNodeMap
+          :: M.Map UnitId (ModNodeMap
                [Either DriverMessages
-                       ModSummary]
+                       ModSummary])
           -> IO ()
         checkDuplicates root_map
            | allow_dup_roots = return ()
@@ -1588,7 +1569,7 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
            | otherwise       = liftIO $ multiRootsErr (head dup_roots)
            where
              dup_roots :: [[ModSummary]]        -- Each at least of length 2
-             dup_roots = filterOut isSingleton $ map rights $ modNodeMapElems root_map
+             dup_roots = filterOut isSingleton $ concatMap (map rights . modNodeMapElems) (M.elems root_map)
 
         -- This loops over modules and units, accumulates the actual dependencies for each module/unit
         loop1 :: [ModSummary]
@@ -1610,7 +1591,7 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
           where
             k = (NodeKey_Module $ (msKey ms))
 
-            backpack_deps = []
+            _backpack_deps = []
 
             -- TODO: Why do we add add the actual module for it's boot file?
             hs_file_for_boot
@@ -1639,7 +1620,7 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
                 let nk = NodeKey_Module (msKey ms)
                 (rest, summarised', done') <- loop ss done summarised
                 return (nk: rest, summarised', done')
-              [Left err] ->
+              [Left _err] ->
                 loop ss done summarised
               errs ->  do
                 pprTraceM "loop" (ppr $ rights errs)
@@ -1655,7 +1636,7 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
                    -}
           | otherwise
           = do
-               mb_s <- summariseModule hsc_env home_unit old_summary_map
+               mb_s <- summariseModule (hscSetActiveHomeUnit home_unit hsc_env) home_unit M.empty --old_summary_map
                                        is_boot wanted_mod mb_pkg
                                        Nothing excl_mods
                case mb_s of
@@ -1665,7 +1646,6 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
                     return (NodeKey_Unit iud : other_deps, done', summarised')
                    FoundHomeWithError (_uid, e) ->  loop ss done (modNodeMapInsertWithUnit key home_uid (Left e) summarised)
                    FoundHome s -> do
-                     let uid = ms_unitid s
 --                     pprTraceM "loop" (ppr home_uid $$ ppr s)
                      (done', summarised') <-
                        loop1 [s] (done, modNodeMapInsertWithUnit (fmap unLoc gwib) home_uid (Right s) summarised)
@@ -1947,7 +1927,7 @@ summariseModule
           -> IO SummariseResult
 
 
-summariseModule hsc_env' home_unit old_summary_map is_boot (L loc wanted_mod) mb_pkg
+summariseModule hsc_env' home_unit _old_summary_map is_boot (L loc wanted_mod) mb_pkg
                 maybe_buf excl_mods
   | wanted_mod `elem` excl_mods
   = return ExternalOrNotThere
@@ -1980,7 +1960,7 @@ summariseModule hsc_env' home_unit old_summary_map is_boot (L loc wanted_mod) mb
     hsc_env   = hscSetActiveHomeUnit home_unit hsc_env'
     dflags    = hsc_dflags hsc_env
 
-    check_hash old_summary location src_fn =
+    _check_hash old_summary location src_fn =
         checkSummaryHash
           hsc_env
           (new_summary location (ms_mod old_summary) src_fn)
@@ -2194,9 +2174,9 @@ noHsFileErr :: SrcSpan -> String -> DriverMessages
 noHsFileErr loc path
   = singleMessage $ mkPlainErrorMsgEnvelope loc (DriverFileNotFound path)
 
-moduleNotFoundErr :: ModuleName -> DriverMessages
-moduleNotFoundErr mod
-  = singleMessage $ mkPlainErrorMsgEnvelope noSrcSpan (DriverModuleNotFound mod)
+moduleNotFoundErr :: HasCallStack => ModuleName -> DriverMessages
+moduleNotFoundErr mod = pprTrace "notFound" callStackDoc
+   $ singleMessage $ mkPlainErrorMsgEnvelope noSrcSpan (DriverModuleNotFound mod)
 
 multiRootsErr :: [ModSummary] -> IO ()
 multiRootsErr [] = panic "multiRootsErr"

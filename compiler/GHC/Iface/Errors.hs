@@ -26,8 +26,6 @@ import GHC.Unit.Env
 import GHC.Unit.Finder.Types
 import GHC.Utils.Outputable as Outputable
 import GHC.Stack
-import GHC.Utils.Trace
-import GHC.Utils.Panic
 
 
 badIfaceFile :: String -> SDoc -> SDoc

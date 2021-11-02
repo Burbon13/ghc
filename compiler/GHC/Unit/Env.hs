@@ -107,8 +107,6 @@ import GHC.Utils.Panic (pprPanic)
 import GHC.Unit.Module.ModIface
 import GHC.Unit.Module
 import Data.Foldable (asum)
-import Data.Coerce
-import GHC.Utils.Trace
 
 data UnitEnv = UnitEnv
     { ue_eps :: {-# UNPACK #-} !ExternalUnitCache

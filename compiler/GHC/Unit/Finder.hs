@@ -69,7 +69,6 @@ import qualified Data.Map as M
 import GHC.Driver.Env (HscEnv(..), hsc_home_unit, hsc_units, hsc_dflags)
 import GHC.Driver.Config.Finder
 import Data.List (find)
-import GHC.Utils.Trace
 
 
 type FileExt = String   -- Filename extension

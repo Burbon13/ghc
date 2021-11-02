@@ -818,22 +818,8 @@ summariseDecl :: PackageName
               -> [NodeKey]
               -> BkpM ModuleGraphNode
 summariseDecl pn hsc_src (L _ modname) (Just hsmod) home_keys = hsModuleToModSummary home_keys pn hsc_src modname hsmod
-{-
-summariseDecl _pn hsc_src lmodname@(L loc modname) _ Nothing
-    = do hsc_env <- getSession
-         -- TODO: this looks for modules in the wrong place
-         r <- liftIO $ summariseModule hsc_env (hsc_home_unit hsc_env)
-                         emptyModNodeMap -- GHC API recomp not supported
-                         (hscSourceToIsBoot hsc_src)
-                         lmodname Nothing
-                         Nothing -- GHC API buffer support not supported
-                         [] -- No exclusions
-         case r of
-            FoundHomeWithError (_, err) -> throwErrors (fmap GhcDriverMessage err)
-            FoundHome summary -> return summary
-            _ -> throwOneError $ fmap GhcDriverMessage
-                                     $ mkPlainErrorMsgEnvelope loc (DriverBackpackModuleNotFound modname)
-                                     -}
+summariseDecl _pn _ _ Nothing _
+    = error "mp"
 
 -- | Up until now, GHC has assumed a single compilation target per source file.
 -- Backpack files with inline modules break this model, since a single file

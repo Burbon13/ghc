@@ -92,7 +92,6 @@ import Data.Maybe
 import Prelude
 import GHC.ResponseFile (expandResponse)
 import GHC.Unit.Env
-import GHC.Utils.Trace
 
 -----------------------------------------------------------------------------
 -- ToDo:
