@@ -108,7 +108,7 @@ import System.FilePath as FilePath
 import Control.Monad
 import Data.Graph (stronglyConnComp, SCC(..))
 import Data.Char ( toUpper )
-import Data.List ( intersperse, partition, sortBy, isSuffixOf )
+import Data.List ( intersperse, partition, sortBy, isSuffixOf, intersect, (\\) )
 import Data.Map (Map)
 import Data.Set (Set)
 import Data.Monoid (First(..))
@@ -117,6 +117,8 @@ import qualified Data.Map as Map
 import qualified Data.Map.Strict as MapStrict
 import qualified Data.Set as Set
 import GHC.LanguageExtensions
+import GHC.Utils.Trace
+import qualified Data.Set as S
 
 -- ---------------------------------------------------------------------------
 -- The Unit state
@@ -591,6 +593,8 @@ initUnits logger dflags cached_dbs home_units = do
                    forceUnitInfoMap
                  $ mkUnitState logger (initUnitConfig dflags cached_dbs home_units)
 
+  checkHomeUnitsClosed unit_state home_units
+
   putDumpFileMaybe logger Opt_D_dump_mod_map "Module Map"
     FormatText (updSDocContext (\ctx -> ctx {sdocLineLength = 200})
                 $ pprModuleMap (moduleNameProvidersMap unit_state))
@@ -618,6 +622,51 @@ initUnits logger dflags cached_dbs home_units = do
         Just info -> lookupPlatformConstants (fmap ST.unpack (unitIncludeDirs info))
 
   return (dbs,unit_state,home_unit,mconstants)
+
+
+-- This function checks then important propertly that if both p and q are home units
+-- then any dependency of p, which transitively depends on q is also a home unit.
+checkHomeUnitsClosed :: UnitState -> [UnitId] -> IO ()
+-- Fast path, trivially closed.
+checkHomeUnitsClosed _ [_] = return ()
+checkHomeUnitsClosed us home_ids = do
+  let home_id_set = S.fromList home_ids
+  let res = foldMap loop home_ids
+  -- Now check whether everything which transitively depends on a home_unit is actually a home_unit
+  -- These units are the ones which we need to load as home packages but failed to do for some reason,
+  -- it's a bug in the tool invoking GHC.
+  let bad_unit_ids = S.difference res home_id_set
+  unless (S.null bad_unit_ids) $ do
+    throwGhcExceptionIO (CmdLineError (unlines $ ["Home units are not closed."
+                                                 ,"It is necessary to also load the following units:"]
+                                                  ++ (map (("- " ++) . unitIdString) (S.toList bad_unit_ids))))
+
+
+  where
+    um = unitInfoMap us
+    -- TODO: This could repeat quite a bit of work but I struggled to write this function.
+    -- Which units transitively depend on a home unit
+    loop :: UnitId -> S.Set UnitId -- The units which transitively depend on a home unit
+    loop uid =
+      case Map.lookup uid um of
+        Nothing -> S.empty -- TODO: This should probably panic? Fails for main home unit
+        Just ui ->
+          let depends = unitDepends ui
+              home_depends = depends `intersect` home_ids
+              other_depends = depends \\ home_ids
+          in -- Case 1: The unit directly depends on a home_id
+            if not (null home_depends)
+              then
+                let res = foldMap loop other_depends
+                in S.insert uid res
+             -- Case 2: Check the rest of the dependencies, and then see if any of them depended on
+              else
+                let res = foldMap loop other_depends
+                in
+                  if not (S.null res)
+                    then S.insert uid res
+                    else res
+
 
 mkHomeUnit
     :: UnitState

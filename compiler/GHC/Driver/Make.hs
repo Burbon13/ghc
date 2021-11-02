@@ -466,10 +466,6 @@ countMods (SingleModule _) = 1
 countMods (ResolvedCycle ns) = length ns
 countMods (UnresolvedCycle ns) = length ns
 
--- Decide which units we want to attempt linking for:
-createLinkPlan :: ModuleGraph -> HscEnv -> Maybe BuildPlan
-createLinkPlan mod_graph hsc_env = undefined
-
 -- See Note [Upsweep] for a high-level description.
 createBuildPlan :: ModuleGraph -> Maybe (ModuleName, UnitId) -> [BuildPlan]
 createBuildPlan mod_graph maybe_top_mod =
@@ -582,10 +578,6 @@ load' cache how_much mHscMessage mod_graph = do
                           _                    -> Nothing
 
         build_plan = createBuildPlan mod_graph maybe_top_mod
-
-        link_plan  = createLinkPlan
-
-
 
 
     let
@@ -1570,7 +1562,7 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
                               , targetContents = maybe_buf
                               , targetUnitId = uid
                               }
-           = do maybe_summary <- summariseModule hsc_env home_unit old_summary_map NotBoot
+           = do maybe_summary <- summariseModule hsc_env home_unit M.empty {- old_summary_map -} NotBoot
                                            (L rootLoc modl) Nothing
                                            maybe_buf excl_mods
                 case maybe_summary of
@@ -1647,7 +1639,12 @@ downsweep hsc_env old_summaries excl_mods allow_dup_roots
                 let nk = NodeKey_Module (msKey ms)
                 (rest, summarised', done') <- loop ss done summarised
                 return (nk: rest, summarised', done')
-              _ -> error "mp"
+              [Left err] ->
+                loop ss done summarised
+              errs ->  do
+                pprTraceM "loop" (ppr $ rights errs)
+                loop ss done summarised
+
           {-
           if isSingleton summs then
                 loop ss done
@@ -1940,7 +1937,7 @@ data SummariseResult =
 summariseModule
           :: HscEnv
           -> HomeUnit
-          -> ModNodeMap ModSummary
+          -> M.Map UnitId (ModNodeMap ModSummary)
           -- ^ Map of old summaries
           -> IsBootInterface    -- True <=> a {-# SOURCE #-} import
           -> Located ModuleName -- Imported module to be summarised

@@ -1,0 +1,6 @@
+[1 of 1] Compiling P                ( p/P.hs, p/P.o )
+[1 of 2] Compiling P                ( p/P.hs, p/P.o )[p-0.1.0.0]
+[2 of 2] Compiling Q                ( q/Q.hs, q/Q.o )[q-0.1.0.0]
+[1 of 3] Compiling P                ( p/P.hs, p/P.o )[p-0.1.0.0]
+[2 of 3] Compiling Q                ( q/Q.hs, q/Q.o )[q-0.1.0.0]
+[3 of 3] Compiling R                ( r/R.hs, r/R.o )[r-0.1.0.0]

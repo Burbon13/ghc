@@ -15,6 +15,7 @@ import GHC.Platform.Ways
 
 import Data.IORef
 import GHC.Data.FastString
+import GHC.Utils.Outputable
 
 -- | The 'FinderCache' maps modules to the result of
 -- searching for that module. It records the results of searching for
@@ -31,6 +32,11 @@ data InstalledFindResult
   = InstalledFound ModLocation InstalledModule
   | InstalledNoPackage UnitId
   | InstalledNotFound [FilePath] (Maybe UnitId)
+
+instance Outputable InstalledFindResult where
+  ppr (InstalledFound ml im) = text "FOUND"
+  ppr (InstalledNoPackage uid) = text "NOPACKAGE"
+  ppr (InstalledNotFound {})  = text "NOT FOUND"
 
 -- | The result of searching for an imported module.
 --

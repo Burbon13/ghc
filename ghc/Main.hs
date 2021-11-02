@@ -763,12 +763,12 @@ doMulti unitArgsFiles  = do
   let (initial_home_graph, mainUnitId) = createUnitEnvFromFlags unitDflags
       home_units = unitEnv_keys initial_home_graph
 
-  pprTraceM "home_units" (ppr home_units)
+--  pprTraceM "home_units" (ppr home_units)
   home_unit_graph <- forM initial_home_graph $ \homeUnitEnv -> do
     let cached_unit_dbs = homeUnitEnv_unit_dbs homeUnitEnv
         hue_flags = homeUnitEnv_dflags homeUnitEnv
         dflags = homeUnitEnv_dflags homeUnitEnv
-    pprTraceM "init_units" (ppr initial_home_graph)
+--    pprTraceM "init_units" (ppr initial_home_graph)
     (dbs,unit_state,home_unit,mconstants) <- liftIO $ State.initUnits logger hue_flags cached_unit_dbs home_units
 
     updated_dflags <- liftIO $ updatePlatformConstants dflags mconstants

@@ -1073,8 +1073,9 @@ batchMultiMsg :: Messager
 batchMultiMsg = batchMsgWith (\_ _ _ node -> brackets (ppr (moduleGraphNodeUnitId node)))
 
 batchMsgWith :: (HscEnv -> (Int, Int) -> RecompileRequired -> ModuleGraphNode -> SDoc) -> Messager
-batchMsgWith extra hsc_env mod_index recomp node = case node of
-    LinkNode uid _ -> showMsg (text "Linking ") empty
+batchMsgWith extra hsc_env_start mod_index recomp node = case node of
+    LinkNode _uid _ ->
+      showMsg (text "Linking ") empty
     InstantiationNode _uid _ ->
         case recomp of
             MustCompile -> showMsg (text "Instantiating ") empty
@@ -1092,6 +1093,7 @@ batchMsgWith extra hsc_env mod_index recomp node = case node of
             RecompBecause reason -> showMsg (text "Compiling ")
                                             (text " [" <> pprWithUnitState state (ppr reason) <> text "]")
     where
+        hsc_env = hscSetActiveUnitId (moduleGraphNodeUnitId node) hsc_env_start
         dflags = hsc_dflags hsc_env
         logger = hsc_logger hsc_env
         state  = hsc_units hsc_env

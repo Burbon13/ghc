@@ -35,6 +35,7 @@ import GHC.Types.Unique.DFM
 import GHC.Utils.Outputable
 import Data.List (sortOn)
 import Data.Ord
+import GHC.Utils.Trace
 
 -- | Information about modules in the package being compiled
 data HomeModInfo = HomeModInfo
@@ -126,14 +127,13 @@ lookupHptByModule :: HomePackageTable -> Module -> Maybe HomeModInfo
 -- The HPT is indexed by ModuleName, not Module,
 -- we must check for a hit on the right Module
 lookupHptByModule hpt mod
-  = case lookupHpt hpt (moduleName mod) of
+  = case (lookupHpt hpt (moduleName mod)) of
       Just hm | mi_module (hm_iface hm) == mod -> Just hm
       _otherwise                               -> Nothing
 
 pprHPT :: HomePackageTable -> SDoc
 -- A bit arbitrary for now
 pprHPT hpt = pprUDFM hpt $ \hms ->
-    vcat [ hang (ppr (mi_module (hm_iface hm)))
-              2 (ppr (md_types (hm_details hm)))
+    vcat [ ppr (mi_module (hm_iface hm))
          | hm <- hms ]
 

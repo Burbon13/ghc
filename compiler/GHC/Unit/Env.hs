@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleInstances #-}
 module GHC.Unit.Env
     ( UnitEnv (..)
     , initUnitEnv
@@ -107,6 +108,7 @@ import GHC.Unit.Module.ModIface
 import GHC.Unit.Module
 import Data.Foldable (asum)
 import Data.Coerce
+import GHC.Utils.Trace
 
 data UnitEnv = UnitEnv
     { ue_eps :: {-# UNPACK #-} !ExternalUnitCache
@@ -301,8 +303,9 @@ lookupHug hug mod = asum (map (\(_, hue) -> lookupHpt (homeUnitEnv_hpt hue) mod)
 
 
 
-instance Outputable (UnitEnvGraph elt) where
-  ppr (UnitEnvGraph g ) = ppr (Map.keys g)
+instance Outputable (UnitEnvGraph HomeUnitEnv) where
+  ppr g = ppr [(k, length (homeUnitEnv_hpt  hue)) | (k, hue) <- (unitEnv_elts g)]
+
 
 
 type UnitEnvGraphKey = UnitId

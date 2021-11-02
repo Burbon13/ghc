@@ -69,6 +69,7 @@ import qualified Data.Map as M
 import GHC.Driver.Env (HscEnv(..), hsc_home_unit, hsc_units, hsc_dflags)
 import GHC.Driver.Config.Finder
 import Data.List (find)
+import GHC.Utils.Trace
 
 
 type FileExt = String   -- Filename extension
@@ -136,7 +137,7 @@ lookupFileCache (FinderCache _ ref) key = do
 -- that package is searched for the module.
 
 findImportedModule :: HscEnv -> ModuleName -> Maybe FastString -> IO FindResult
-findImportedModule hsc_env =
+findImportedModule hsc_env mod fs =
   let fc        = hsc_FC hsc_env
       home_unit = hsc_home_unit hsc_env
       units     = hsc_units hsc_env
@@ -145,8 +146,8 @@ findImportedModule hsc_env =
       hpt_deps  = homeUnitDepends units
       home_finder_opts  = map (\uid -> (uid, initFinderOpts (homeUnitEnv_dflags (ue_findHomeUnitEnv uid (hsc_unit_env hsc_env))))) hpt_deps
       fopts     = initFinderOpts dflags
-  in
-    findImportedModuleNoHsc fc fopts home_finder_opts units home_unit
+  in do
+    findImportedModuleNoHsc fc fopts home_finder_opts units home_unit mod fs
 
 findImportedModuleNoHsc
   :: FinderCache
