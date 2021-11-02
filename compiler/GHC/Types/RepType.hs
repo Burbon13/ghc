@@ -565,4 +565,4 @@ runtimeRepPrimRep doc rr_ty
 -- to fresh Ids. Really, only the type's representation matters.
 -- See also Note [RuntimeRep and PrimRep]
 primRepToType :: PrimRep -> Type
-primRepToType = anyTypeOfKind . tYPE . primRepToRuntimeRep
+primRepToType = anyTypeOfKind . mkTYPEapp . primRepToRuntimeRep
