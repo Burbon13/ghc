@@ -512,7 +512,7 @@ loadInterface doc_str mod from
         --     If we do loadExport first the wrong info gets into the cache (unless we
         --      explicitly tag each export which seems a bit of a bore)
 
-        ; when (not (isOneShot (ghcMode (hsc_dflags hsc_env))) && moduleUnitId mod `elem` hsc_all_home_unit_ids hsc_env) (pprPanic "loadInterface" (ppr hpt $$ doc_str $$ ppr mod $$ ppr (moduleUnitId mod) $$ callStackDoc))
+--        ; when (not (isOneShot (ghcMode (hsc_dflags hsc_env))) && moduleUnitId mod `elem` hsc_all_home_unit_ids hsc_env) (pprPanic "loadInterface" (ppr hpt $$ doc_str $$ ppr mod $$ ppr (moduleUnitId mod) $$ callStackDoc))
         ; ignore_prags      <- goptM Opt_IgnoreInterfacePragmas
         ; new_eps_decls     <- tcIfaceDecls ignore_prags (mi_decls iface)
         ; new_eps_insts     <- mapM tcIfaceInst (mi_insts iface)
