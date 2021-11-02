@@ -235,7 +235,6 @@ mkWwBodies opts fun_id arg_vars res_ty demands res_cpr
               zapped_arg_vars = map zap_var arg_vars
               (subst, cloned_arg_vars) = cloneBndrs empty_subst uniq_supply zapped_arg_vars
               res_ty' = GHC.Core.Subst.substTy subst res_ty
-              -- TODO:Could set all demanded args to cbv here I suppose
               init_cbv_marks = replicate (length cloned_arg_vars) NotMarkedCbv
 
         ; (useful1, work_args, work_marks, wrap_fn_str, fn_args)
