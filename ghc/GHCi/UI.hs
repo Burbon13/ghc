@@ -161,7 +161,6 @@ import GHC.IO.Handle ( hFlushAll )
 import GHC.TopHandler ( topHandler )
 
 import GHCi.Leak
-import GHC.Plugins (hsc_home_unit)
 import qualified GHC.Unit.Module.Graph as GHC
 
 -----------------------------------------------------------------------------
@@ -1701,7 +1700,7 @@ editFile str =
 -- of those.
 chooseEditFile :: GHC.GhcMonad m => m String
 chooseEditFile =
-  do let hasFailed (GHC.ModuleNode deps x) = fmap not $ GHC.isLoaded $ GHC.ms_mod_name x
+  do let hasFailed (GHC.ModuleNode _deps x) = fmap not $ GHC.isLoaded $ GHC.ms_mod_name x
          hasFailed _ = return False
 
      graph <- GHC.getModuleGraph

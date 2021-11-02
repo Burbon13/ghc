@@ -143,7 +143,7 @@ import System.IO        ( fixIO )
 import GHC.Conc ( getNumProcessors, getNumCapabilities, setNumCapabilities )
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
-import GHC.Driver.Pipeline.LogQueuePar
+import GHC.Driver.Pipeline.LogQueue
 import qualified Data.Map.Strict as M
 import GHC.Types.TypeEnv
 import Control.Monad.Trans.State.Lazy
