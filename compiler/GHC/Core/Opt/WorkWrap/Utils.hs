@@ -147,8 +147,8 @@ data WwOpts
   , wo_max_worker_args   :: !Int
   -- Used for absent argument error message
   , wo_module            :: !Module
-  , wo_unlift_strict     :: !Bool -- If an argument is strict, pass it unlifted (all binders)
-  , wo_unlift_strict_rec :: !Bool -- If an argument is strict, pass it unlifted (for recursive bindings)
+  , wo_unlift_strict     :: !Bool -- Generate workers even if the only effect is some args
+                                  -- get passed unlifted.
   }
 
 initWwOpts :: Module -> DynFlags -> FamInstEnvs -> WwOpts
@@ -160,7 +160,6 @@ initWwOpts this_mod dflags fam_envs = MkWwOpts
   , wo_max_worker_args   = maxWorkerArgs dflags
   , wo_module            = this_mod
   , wo_unlift_strict     = gopt Opt_WorkerWrapperUnlift dflags
-  , wo_unlift_strict_rec = gopt Opt_WorkerWrapperUnliftRec dflags
   }
 
 type WwResult
@@ -588,7 +587,7 @@ unliftWorkerArg :: WwOpts -> WorkerQuality
 unliftWorkerArg !opts
     -- Always unlift if possible
     | wo_unlift_strict opts = goodWorker
-    -- Never unlift
+    -- Never unlift if it would cause additional W/W splits.
     | otherwise = badWorker
 
 badWorker :: WorkerQuality
@@ -606,13 +605,12 @@ isGoodWorker = id
 -- a 'DataConPatContext' as well the nested demands on fields of the 'DataCon'
 -- to unbox.
 wantToUnboxArg
-  :: Bool                -- ^ Allow unlifting?
-  -> FamInstEnvs
+  :: FamInstEnvs
   -> Type                -- ^ Type of the argument
   -> Demand              -- ^ How the arg was used
   -> UnboxingDecision Demand
 -- See Note [Which types are unboxed?]
-wantToUnboxArg unlift_strict fam_envs ty dmd@(n :* sd)
+wantToUnboxArg fam_envs ty dmd@(n :* sd)
   | isAbs n
   = DropAbsent
 
@@ -625,8 +623,7 @@ wantToUnboxArg unlift_strict fam_envs ty dmd@(n :* sd)
   = Unbox (DataConPatContext dc tc_args co) ds
 
   -- See Note [Strict Worker Ids]
-  | unlift_strict
-  , isStrUsedDmd dmd
+  | isStrUsedDmd dmd
   , not (isFunTy ty)
   = Unlift
 
@@ -998,7 +995,7 @@ mkWWstr_one :: WwOpts
             -> CbvMark
             -> UniqSM (WorkerQuality, [Var], [CbvMark], CoreExpr -> CoreExpr, CoreExpr)
 mkWWstr_one opts arg marked_cbv =
-  case wantToUnboxArg (wo_unlift_strict opts) fam_envs arg_ty arg_dmd of
+  case wantToUnboxArg fam_envs arg_ty arg_dmd of
     _ | isTyVar arg -> do_nothing
 
     DropAbsent

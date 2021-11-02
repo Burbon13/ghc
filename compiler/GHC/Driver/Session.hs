@@ -3364,8 +3364,7 @@ fFlagsDeps = [
   flagSpec "unbox-strict-fields"              Opt_UnboxStrictFields,
   flagSpec "version-macros"                   Opt_VersionMacros,
   flagSpec "worker-wrapper"                   Opt_WorkerWrapper,
-  flagSpec "worker-wrapper-strict"            Opt_WorkerWrapperUnlift,
-  flagSpec "worker-wrapper-rec"               Opt_WorkerWrapperUnliftRec,
+  flagSpec "worker-wrapper-unlifting"         Opt_WorkerWrapperUnlift,
   flagSpec "solve-constant-dicts"             Opt_SolveConstantDicts,
   flagSpec "catch-bottoms"                    Opt_CatchBottoms,
   flagSpec "alignment-sanitisation"           Opt_AlignmentSanitisation,
@@ -3731,7 +3730,7 @@ impliedGFlags = [(Opt_DeferTypeErrors, turnOn, Opt_DeferTypedHoles)
                 ,(Opt_DeferTypeErrors, turnOn, Opt_DeferOutOfScopeVariables)
                 ,(Opt_DoLinearCoreLinting, turnOn, Opt_DoCoreLinting)
                 ,(Opt_Strictness, turnOn, Opt_WorkerWrapper)
-                ,(Opt_WorkerWrapper, turnOn, Opt_WorkerWrapperUnliftRec)
+                ,(Opt_WorkerWrapper, turnOn, Opt_WorkerWrapperUnlift)
                 ] ++ validHoleFitsImpliedGFlags
 
 -- General flags that are switched on/off when other general flags are switched
@@ -3869,7 +3868,7 @@ optLevelFlags -- see Note [Documenting optimisation flags]
     , ([1,2],   Opt_UnboxSmallStrictFields)
     , ([1,2],   Opt_CprAnal)
     , ([1,2],   Opt_WorkerWrapper)
-    , ([1,2],   Opt_WorkerWrapperUnliftRec )
+    , ([1,2],   Opt_WorkerWrapperUnlift)
     , ([1,2],   Opt_SolveConstantDicts)
     , ([1,2],   Opt_NumConstantFolding)
 
