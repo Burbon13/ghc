@@ -88,7 +88,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import GHC.Utils.Trace
-import GHC.Plugins (hsc_all_home_unit_ids)
 
 -- | Entry point to compile a Backpack file.
 doBackpack :: [FilePath] -> Ghc ()

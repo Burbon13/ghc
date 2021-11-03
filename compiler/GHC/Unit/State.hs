@@ -642,6 +642,10 @@ checkHomeUnitsClosed us home_ids = do
 
 
   where
+    -- MP: This function is not really right.. it assumes that all the units will
+    -- also be in the package db, which is just not true. This warning probably needs
+    -- to instead happen in downsweep? But in there we don't even discover which packages
+    -- we depend on yet?
     um = unitInfoMap us
     -- TODO: This could repeat quite a bit of work but I struggled to write this function.
     -- Which units transitively depend on a home unit
