@@ -255,6 +255,32 @@ The GHC command line options that control packages are:
     reserves the right to interpret other characters in a special
     way in later releases.
 
+.. ghc-flag:: -working-dir ⟨unit-id⟩
+    :shortdesc: Compile to be part of unit (i.e. package)
+        ⟨unit-id⟩
+    :type: dynamic
+    :category:
+
+.. ghc-flag:: -unit ⟨unit-id⟩
+    :shortdesc: Compile to be part of unit (i.e. package)
+        ⟨unit-id⟩
+    :type: dynamic
+    :category:
+
+.. ghc-flag:: -this-package-name ⟨unit-id⟩
+    :shortdesc: Compile to be part of unit (i.e. package)
+        ⟨unit-id⟩
+    :type: dynamic
+    :category:
+
+.. ghc-flag:: -hidden-module ⟨unit-id⟩
+    :shortdesc: Compile to be part of unit (i.e. package)
+        ⟨unit-id⟩
+    :type: dynamic
+    :category:
+
+
+
 .. ghc-flag:: -trust ⟨pkg⟩
     :shortdesc: Expose package ⟨pkg⟩ and set it to be trusted
     :type: dynamic
