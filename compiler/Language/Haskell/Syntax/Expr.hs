@@ -326,6 +326,8 @@ data HsExpr p
 
   | HsApp     (XApp p) (LHsExpr p) (LHsExpr p) -- ^ Application
 
+  | HsDictApp (XApp p) (LHsExpr p) (LHsExpr p) -- ^ Dictionary Application
+
   | HsAppType (XAppTypeE p) -- After typechecking: the type argument
               (LHsExpr p)
               (LHsWcType (NoGhcTc p))  -- ^ Visible type application

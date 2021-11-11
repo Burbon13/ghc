@@ -275,6 +275,11 @@ rnExpr (HsApp x fun arg)
        ; (arg',fvArg) <- rnLExpr arg
        ; return (HsApp x fun' arg', fvFun `plusFV` fvArg) }
 
+rnExpr (HsDictApp x fun arg)
+  = do { (fun',fvFun) <- rnLExpr fun  -- rename function which is a located expression
+       ; (arg',fvArg) <- rnLExpr arg  -- rename argument which is a located expression
+       ; return (HsDictApp x fun' arg', fvFun `plusFV` fvArg) }  -- return renamed HsDictApp + free variables fun + free variables arg
+
 rnExpr (HsAppType _ fun arg)
   = do { type_app <- xoptM LangExt.TypeApplications
        ; unless type_app $ addErr $ typeAppErr "type" $ hswc_body arg

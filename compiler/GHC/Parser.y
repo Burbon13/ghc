@@ -93,7 +93,7 @@ import GHC.Builtin.Types ( unitTyCon, unitDataCon, tupleTyCon, tupleDataCon, nil
 import qualified Data.Semigroup as Semi
 }
 
-%expect 0 -- shift/reduce conflicts
+%expect 1 -- shift/reduce conflicts
 
 {- Note [shift/reduce conflicts]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2751,6 +2751,12 @@ fexp    :: { ECP }
                                           unECP $1 >>= \ $1 ->
                                           unECP $2 >>= \ $2 ->
                                           mkHsAppPV (noAnnSrcSpan $ comb2A (reLoc $1) $>) $1 $2 }
+
+	| fexp '(' '(' aexp ')' ')'         { ECP $
+                                                 superFunArg $
+                                                 unECP $1 >>= \ $1 ->
+                                                 unECP $4 >>= \ $4 ->
+                                                 mkHsDictAppPV (noAnnSrcSpan $ comb2A (reLoc $1) $4) $1 $4 }
 
         -- See Note [Whitespace-sensitive operator parsing] in GHC.Parser.Lexer
         | fexp PREFIX_AT atype       { ECP $

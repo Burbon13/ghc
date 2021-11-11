@@ -196,6 +196,7 @@ tcExpr :: HsExpr GhcRn -> ExpRhoType -> TcM (HsExpr GhcTc)
 -- See Note [Application chains and heads] in GHC.Tc.Gen.App
 tcExpr e@(HsVar {})              res_ty = tcApp e res_ty
 tcExpr e@(HsApp {})              res_ty = tcApp e res_ty
+tcExpr e@(HsDictApp {})          res_ty = tcApp e res_ty
 tcExpr e@(OpApp {})              res_ty = tcApp e res_ty
 tcExpr e@(HsAppType {})          res_ty = tcApp e res_ty
 tcExpr e@(ExprWithTySig {})      res_ty = tcApp e res_ty

@@ -1456,6 +1456,8 @@ class (b ~ (Body b) GhcPs, AnnoBody b) => DisambECP b where
   superFunArg :: (DisambECP (FunArg b) => PV (LocatedA b)) -> PV (LocatedA b)
   -- | Disambiguate "f x" (function application)
   mkHsAppPV :: SrcSpanAnnA -> LocatedA b -> LocatedA (FunArg b) -> PV (LocatedA b)
+  -- | [EDA] Disambiguate "f ((dict))" (dictionary application)
+  mkHsDictAppPV :: SrcSpanAnnA -> LocatedA b -> LocatedA (FunArg b) -> PV (LocatedA b)
   -- | Disambiguate "f @t" (visible type application)
   mkHsAppTypePV :: SrcSpanAnnA -> LocatedA b -> SrcSpan -> LHsType GhcPs -> PV (LocatedA b)
   -- | Disambiguate "if ... then ... else ..."
@@ -1672,6 +1674,12 @@ instance DisambECP (HsExpr GhcPs) where
   type FunArg (HsExpr GhcPs) = HsExpr GhcPs
   superFunArg m = m
   mkHsAppPV l e1 e2 = do
+    cs <- getCommentsFor (locA l)
+    checkExpBlockArguments e1
+    checkExpBlockArguments e2
+    return $ L l (HsApp (comment (realSrcSpan $ locA l) cs) e1 e2)
+  mkHsDictAppPV l e1 e2 = do
+    trace "[PostProcess.hs] mkHsDictAppPV" $ return ()
     cs <- getCommentsFor (locA l)
     checkExpBlockArguments e1
     checkExpBlockArguments e2
