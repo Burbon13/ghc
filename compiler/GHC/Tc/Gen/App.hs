@@ -312,14 +312,19 @@ tcApp :: HsExpr GhcRn -> ExpRhoType -> TcM (HsExpr GhcTc)
 -- See Note [tcApp: typechecking applications]
 tcApp rn_expr exp_res_ty
   | (fun@(rn_fun, fun_ctxt), rn_args) <- splitHsApps rn_expr
-  = do { (tc_fun, fun_sigma) <- tcInferAppHead fun rn_args
+  = do { trace "[Tc/Gen/App.hs] tcDictApp" $ return ()
+       ; trace "[Tc/Gen/App.hs] tcInferAppHead" $ return ()
+       ; (tc_fun, fun_sigma) <- tcInferAppHead fun rn_args
                                     (checkingExpType_maybe exp_res_ty)
 
        -- Instantiate
+       ; trace "[Tc/Gen/App.hs] wantQuickLook" $ return ()
        ; do_ql <- wantQuickLook rn_fun
+       ; trace "[Tc/Gen/App.hs] tcInstFun" $ return ()
        ; (delta, inst_args, app_res_rho) <- tcInstFun do_ql True fun fun_sigma rn_args
 
        -- Quick look at result
+       ; trace "[Tc/Gen/App.hs] app_res_rho if else" $ return ()
        ; app_res_rho <- if do_ql
                         then quickLookResultType delta app_res_rho exp_res_ty
                         else return app_res_rho
@@ -331,6 +336,7 @@ tcApp rn_expr exp_res_ty
        --    more confusing than helpful because the function at the head isn't in
        --    the source program; it was added by the renamer.  See
        --    Note [Handling overloaded and rebindable constructs] in GHC.Rename.Expr
+       ; trace "[Tc/Gen/App.hs] perhaps_add_res_ty_ctxt" $ return ()
        ; let  perhaps_add_res_ty_ctxt thing_inside
                  | insideExpansion fun_ctxt
                  = thing_inside
@@ -353,6 +359,7 @@ tcApp rn_expr exp_res_ty
                                , text "rn_expr:"     <+> ppr rn_expr ]) }
 
        -- Typecheck the value arguments
+       ; trace "[Tc/Gen/App.hs] tcValArgs" $ return ()
        ; tc_args <- tcValArgs do_ql inst_args
 
        -- Reconstruct, with special case for tagToEnum#

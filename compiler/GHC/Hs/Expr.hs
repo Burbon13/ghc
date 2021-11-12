@@ -478,6 +478,7 @@ ppr_expr (HsPar _ e)         = parens (ppr_lexpr e)
 ppr_expr (HsPragE _ prag e) = sep [ppr prag, ppr_lexpr e]
 
 ppr_expr e@(HsApp {})        = ppr_apps e []
+ppr_expr e@(HsDictApp {})    = ppr_apps e []
 ppr_expr e@(HsAppType {})    = ppr_apps e []
 
 ppr_expr (OpApp _ e1 op e2)
@@ -675,6 +676,8 @@ ppr_apps :: (OutputableBndrId p)
          -> SDoc
 ppr_apps (HsApp _ (L _ fun) arg)        args
   = ppr_apps fun (Left arg : args)
+ppr_apps (HsDictApp _ (L _ fun) arg)    args
+  = ppr_apps fun (Left arg : args)
 ppr_apps (HsAppType _ (L _ fun) arg)    args
   = ppr_apps fun (Right arg : args)
 ppr_apps fun args = hang (ppr_expr fun) 2 (fsep (map pp args))
@@ -719,6 +722,7 @@ hsExprNeedsParens p = go
     go (HsOverLit _ ol)               = hsOverLitNeedsParens p ol
     go (HsPar{})                      = False
     go (HsApp{})                      = p >= appPrec
+    go (HsDictApp{})                  = p >= appPrec
     go (HsAppType {})                 = p >= appPrec
     go (OpApp{})                      = p >= opPrec
     go (NegApp{})                     = p > topPrec

@@ -399,7 +399,11 @@ tcInferAppHead :: (HsExpr GhcRn, AppCtxt)
 -- See Note [tcApp: typechecking applications] in GHC.Tc.Gen.App
 tcInferAppHead (fun,ctxt) args mb_res_ty
   = setSrcSpan (appCtxtLoc ctxt) $
-    do { mb_tc_fun <- tcInferAppHead_maybe fun args mb_res_ty
+    do { trace "[Tc/Gen/Head.hs] tcInferAppHead" $ return ()
+       ; trace "[Tc/Gen/Head.hs] tcInferAppHead_maybe" $ return ()
+       ; mb_tc_fun <- tcInferAppHead_maybe fun args mb_res_ty
+       ; traceTc "tcInferAppHead" (vcat [ppr fun])
+       ; trace "[Tc/Gen/Head.hs] case mb_tc_fun" $ return ()
        ; case mb_tc_fun of
             Just (fun', fun_sigma) -> return (fun', fun_sigma)
             Nothing -> add_head_ctxt fun args $

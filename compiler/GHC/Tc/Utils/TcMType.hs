@@ -522,9 +522,14 @@ Note [fillInferResult].
 -- See also Note [ExpType] in "GHC.Tc.Utils.TcMType"
 tcInfer :: (ExpSigmaType -> TcM a) -> TcM (a, TcSigmaType)
 tcInfer tc_check
-  = do { res_ty <- newInferExpType
+  = do { trace "[Tc/Utils/TcMType.hs] tc_check" $ return ()
+       ; trace "[Tc/Utils/TcMType.hs] newInferExpType" $ return ()
+       ; res_ty <- newInferExpType
+       ; trace "[Tc/Utils/TcMType.hs] tc_check" $ return ()
        ; result <- tc_check res_ty
+       ; trace "[Tc/Utils/TcMType.hs] readExpType" $ return ()
        ; res_ty <- readExpType res_ty
+       ; trace "[Tc/Utils/TcMType.hs] returning" $ return ()
        ; return (result, res_ty) }
 
 fillInferResult :: TcType -> InferResult -> TcM TcCoercionN

@@ -1679,11 +1679,12 @@ instance DisambECP (HsExpr GhcPs) where
     checkExpBlockArguments e2
     return $ L l (HsApp (comment (realSrcSpan $ locA l) cs) e1 e2)
   mkHsDictAppPV l e1 e2 = do
-    trace "[PostProcess.hs] mkHsDictAppPV" $ return ()
+    trace "[Parser/PostProcess.hs] mkHsDictAppPV" $ return ()
     cs <- getCommentsFor (locA l)
     checkExpBlockArguments e1
     checkExpBlockArguments e2
-    return $ L l (HsApp (comment (realSrcSpan $ locA l) cs) e1 e2)
+    trace "[Parser/PostProcess.hs] returning mkHsDictAppPV" $ return ()
+    return $ L l (HsDictApp (comment (realSrcSpan $ locA l) cs) e1 e2)
   mkHsAppTypePV l e la t = do
     checkExpBlockArguments e
     return $ L l (HsAppType la e (mkHsWildCardBndrs t))

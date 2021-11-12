@@ -276,8 +276,10 @@ rnExpr (HsApp x fun arg)
        ; return (HsApp x fun' arg', fvFun `plusFV` fvArg) }
 
 rnExpr (HsDictApp x fun arg)
-  = do { (fun',fvFun) <- rnLExpr fun  -- rename function which is a located expression
+  = do { trace "[Rename/Expr.hs] rnExpr" $ return ()
+       ; (fun',fvFun) <- rnLExpr fun  -- rename function which is a located expression
        ; (arg',fvArg) <- rnLExpr arg  -- rename argument which is a located expression
+       ; trace "[Rename/Expr.hs] returning rnExpr" $ return ()
        ; return (HsDictApp x fun' arg', fvFun `plusFV` fvArg) }  -- return renamed HsDictApp + free variables fun + free variables arg
 
 rnExpr (HsAppType _ fun arg)
