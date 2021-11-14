@@ -249,6 +249,7 @@ splitHsApps e = go e (top_ctxt 0 e) []
     top_ctxt n (HsPragE _ _ fun)           = top_lctxt n fun
     top_ctxt n (HsAppType _ fun _)         = top_lctxt (n+1) fun
     top_ctxt n (HsApp _ fun _)             = top_lctxt (n+1) fun
+    top_ctxt n (HsDictApp _ fun _)         = top_lctxt (n+1) fun
     top_ctxt n (XExpr (HsExpanded orig _)) = VACall orig      n noSrcSpan
     top_ctxt n other_fun                   = VACall other_fun n noSrcSpan
 
@@ -260,6 +261,7 @@ splitHsApps e = go e (top_ctxt 0 e) []
     go (HsPragE _ p (L l fun))    ctxt args = go fun (set l ctxt) (EPrag      ctxt p   : args)
     go (HsAppType _ (L l fun) ty) ctxt args = go fun (dec l ctxt) (mkETypeArg ctxt ty  : args)
     go (HsApp _ (L l fun) arg)    ctxt args = go fun (dec l ctxt) (mkEValArg  ctxt arg : args)
+    go (HsDictApp _ (L l fun) arg) ctxt args = go fun (dec l ctxt) (mkEValArg  ctxt arg : args)
 
     -- See Note [Looking through HsExpanded]
     go (XExpr (HsExpanded orig fun)) ctxt args
@@ -402,10 +404,10 @@ tcInferAppHead (fun,ctxt) args mb_res_ty
     do { trace "[Tc/Gen/Head.hs] tcInferAppHead" $ return ()
        ; trace "[Tc/Gen/Head.hs] tcInferAppHead_maybe" $ return ()
        ; mb_tc_fun <- tcInferAppHead_maybe fun args mb_res_ty
-       ; traceTc "tcInferAppHead" (vcat [ppr fun])
        ; trace "[Tc/Gen/Head.hs] case mb_tc_fun" $ return ()
        ; case mb_tc_fun of
-            Just (fun', fun_sigma) -> return (fun', fun_sigma)
+            Just (fun', fun_sigma) -> do trace "[Tc/Gen/Head.hs] case mb_tc_fun of - just" $ return ()
+                                         return (fun', fun_sigma)
             Nothing -> add_head_ctxt fun args $
                        tcInfer (tcExpr fun) }
 

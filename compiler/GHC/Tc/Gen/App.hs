@@ -312,7 +312,7 @@ tcApp :: HsExpr GhcRn -> ExpRhoType -> TcM (HsExpr GhcTc)
 -- See Note [tcApp: typechecking applications]
 tcApp rn_expr exp_res_ty
   | (fun@(rn_fun, fun_ctxt), rn_args) <- splitHsApps rn_expr
-  = do { trace "[Tc/Gen/App.hs] tcDictApp" $ return ()
+  = do { trace "==================== [Tc/Gen/App.hs] tcApp ====================" $ return ()
        ; trace "[Tc/Gen/App.hs] tcInferAppHead" $ return ()
        ; (tc_fun, fun_sigma) <- tcInferAppHead fun rn_args
                                     (checkingExpType_maybe exp_res_ty)
@@ -363,11 +363,13 @@ tcApp rn_expr exp_res_ty
        ; tc_args <- tcValArgs do_ql inst_args
 
        -- Reconstruct, with special case for tagToEnum#
+       ; trace "[Tc/Gen/App.hs] Reconstruct, with special case for tagToEnum#" $ return ()
        ; tc_expr <- if isTagToEnum rn_fun
                     then tcTagToEnum tc_fun fun_ctxt tc_args app_res_rho
                     else return (rebuildHsApps tc_fun fun_ctxt tc_args)
 
        -- Wrap the result
+       ; trace "[Tc/Gen/App.hs] return - wrap the result" $ return ()
        ; return (mkHsWrapCo res_co tc_expr) }
 
 --------------------
@@ -508,6 +510,7 @@ tcInstFun do_ql inst_final (rn_fun, fun_ctxt) fun_sigma rn_args
           VAExpansion orig _ -> addExprCtxt orig thing_inside
           VACall {}          -> thing_inside
 
+    -- [EDA] Here the error is created that we apply to many arguments
     herald = sep [ text "The function" <+> quotes (ppr rn_fun)
                  , text "is applied to"]
 

@@ -525,9 +525,9 @@ tcInfer tc_check
   = do { trace "[Tc/Utils/TcMType.hs] tc_check" $ return ()
        ; trace "[Tc/Utils/TcMType.hs] newInferExpType" $ return ()
        ; res_ty <- newInferExpType
-       ; trace "[Tc/Utils/TcMType.hs] tc_check" $ return ()
+       ; trace "[Tc/Utils/TcMType.hs] tc_check res_ty" $ return ()
        ; result <- tc_check res_ty
-       ; trace "[Tc/Utils/TcMType.hs] readExpType" $ return ()
+       ; trace "[Tc/Utils/TcMType.hs] readExpType res_ty" $ return ()
        ; res_ty <- readExpType res_ty
        ; trace "[Tc/Utils/TcMType.hs] returning" $ return ()
        ; return (result, res_ty) }
