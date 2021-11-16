@@ -676,8 +676,9 @@ tcInstFun do_ql inst_final (rn_fun, fun_ctxt) fun_sigma rn_args
                        : addArgWrap wrap acc
           ; go delta' acc' (arg_ty:so_far) res_ty rest_args }
 
-    -- [EDA] TODO: Check if correct
-    --go1 delta acc so_far fun_ty eva@(EDictValArg { }) = go1 del
+    -- [EDA] No checks, just return. TODO: Check if correct
+    go1 delta acc so_far fun_ty (edva@(EDictValArg {})  : rest_args)
+      = return (delta, reverse acc, fun_ty)
 
 addArgCtxt :: AppCtxt -> LHsExpr GhcRn
            -> TcM a -> TcM a
