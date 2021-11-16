@@ -2752,6 +2752,7 @@ fexp    :: { ECP }
                                           unECP $2 >>= \ $2 ->
                                           mkHsAppPV (noAnnSrcSpan $ comb2A (reLoc $1) $>) $1 $2 }
 
+        -- [EDA] TODO: Change syntax with a better variant.
 	| fexp '(' '(' aexp ')' ')'         { ECP $
                                                  superFunArg $
                                                  unECP $1 >>= \ $1 ->

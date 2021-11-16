@@ -166,6 +166,12 @@ data HsExprArg (p :: TcPass)
              , eva_arg    :: EValArg p
              , eva_arg_ty :: !(XEVAType p) }
 
+  -- [EDA] Explicit dictionary application value argument.
+  -- We need a separate one so that we can separately check these types of arguments.
+  | EDictValArg  { eva_ctxt   :: AppCtxt
+                 , eva_arg    :: EValArg p
+                 , eva_arg_ty :: !(XEVAType p) }
+
   | ETypeArg { eva_ctxt  :: AppCtxt
              , eva_hs_ty :: LHsWcType GhcRn  -- The type arg
              , eva_ty    :: !(XETAType p) }  -- Kind-checked type arg
@@ -230,6 +236,10 @@ mkEValArg :: AppCtxt -> LHsExpr GhcRn -> HsExprArg 'TcpRn
 mkEValArg ctxt e = EValArg { eva_arg = ValArg e, eva_ctxt = ctxt
                            , eva_arg_ty = noExtField }
 
+mkEDictValArg :: AppCtxt -> LHsExpr GhcRn -> HsExprArg 'TcpRn
+mkEDictValArg ctxt e = EDictValArg { eva_arg = ValArg e, eva_ctxt = ctxt
+                           , eva_arg_ty = noExtField }
+
 mkETypeArg :: AppCtxt -> LHsWcType GhcRn -> HsExprArg 'TcpRn
 mkETypeArg ctxt hs_ty = ETypeArg { eva_ctxt = ctxt, eva_hs_ty = hs_ty
                                  , eva_ty = noExtField }
@@ -261,7 +271,7 @@ splitHsApps e = go e (top_ctxt 0 e) []
     go (HsPragE _ p (L l fun))    ctxt args = go fun (set l ctxt) (EPrag      ctxt p   : args)
     go (HsAppType _ (L l fun) ty) ctxt args = go fun (dec l ctxt) (mkETypeArg ctxt ty  : args)
     go (HsApp _ (L l fun) arg)    ctxt args = go fun (dec l ctxt) (mkEValArg  ctxt arg : args)
-    go (HsDictApp _ (L l fun) arg) ctxt args = go fun (dec l ctxt) (mkEValArg  ctxt arg : args)
+    go (HsDictApp _ (L l fun) arg) ctxt args = go fun (dec l ctxt) (mkEDictValArg  ctxt arg : args)
 
     -- See Note [Looking through HsExpanded]
     go (XExpr (HsExpanded orig fun)) ctxt args
@@ -291,6 +301,8 @@ rebuildHsApps fun ctxt (arg : args)
   = case arg of
       EValArg { eva_arg = ValArg arg, eva_ctxt = ctxt' }
         -> rebuildHsApps (HsApp noAnn lfun arg) ctxt' args
+      EDictValArg { eva_arg = ValArg arg, eva_ctxt = ctxt' }  -- [EDA] TODO: Check if correct
+              -> rebuildHsApps (HsDictApp noAnn lfun arg) ctxt' args
       ETypeArg { eva_hs_ty = hs_ty, eva_ty  = ty, eva_ctxt = ctxt' }
         -> rebuildHsApps (HsAppType ty lfun hs_ty) ctxt' args
       EPrag ctxt' p
@@ -311,6 +323,7 @@ isHsValArg _            = False
 countLeadingValArgs :: [HsExprArg id] -> Int
 countLeadingValArgs []                   = 0
 countLeadingValArgs (EValArg {}  : args) = 1 + countLeadingValArgs args
+countLeadingValArgs (EDictValArg {}  : args) = countLeadingValArgs args  -- [EDA] TODO: Check if correct
 countLeadingValArgs (EWrap {}    : args) = countLeadingValArgs args
 countLeadingValArgs (EPrag {}    : args) = countLeadingValArgs args
 countLeadingValArgs (ETypeArg {} : _)    = 0
@@ -321,11 +334,13 @@ isValArg _            = False
 
 isVisibleArg :: HsExprArg id -> Bool
 isVisibleArg (EValArg {})  = True
+isVisibleArg (EDictValArg {})  = True  -- [EDA] TODO: Check if correct
 isVisibleArg (ETypeArg {}) = True
 isVisibleArg _             = False
 
 instance OutputableBndrId (XPass p) => Outputable (HsExprArg p) where
   ppr (EValArg { eva_arg = arg })      = text "EValArg" <+> ppr arg
+  ppr (EDictValArg { eva_arg = arg })  = text "EDictValArg" <+> ppr arg  -- [EDA]
   ppr (EPrag _ p)                      = text "EPrag" <+> ppr p
   ppr (ETypeArg { eva_hs_ty = hs_ty }) = char '@' <> ppr hs_ty
   ppr (EWrap wrap)                     = ppr wrap

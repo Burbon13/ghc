@@ -444,6 +444,30 @@ tcValArgs do_ql args
            ; return (eva { eva_arg    = ValArg arg'
                          , eva_arg_ty = Scaled mult arg_ty }) }
 
+    -- [EDA] Doing same checks now (?). TODO: Check if correct
+    tc_arg edva@(EDictValArg { eva_arg = arg, eva_arg_ty = Scaled mult arg_ty , eva_ctxt = ctxt })
+      = do { -- Crucial step: expose QL results before checking arg_ty
+             -- So far as the paper is concerned, this step applies
+             -- the poly-substitution Theta, learned by QL, so that we
+             -- "see" the polymorphism in that argument type. E.g.
+             --    (:) e ids, where ids :: [forall a. a->a]
+             --                     (:) :: forall p. p->[p]->[p]
+             -- Then Theta = [p :-> forall a. a->a], and we want
+             -- to check 'e' with expected type (forall a. a->a)
+             -- See Note [Instantiation variables are short lived]
+             arg_ty <- zonkQuickLook do_ql arg_ty
+
+             -- Now check the argument
+           ; arg' <- tcScalingUsage mult $
+                     do { traceTc "tcEValArg" $
+                          vcat [ ppr ctxt
+                               , text "arg type:" <+> ppr arg_ty
+                               , text "arg:" <+> ppr arg ]
+                        ; tcEValArg ctxt arg arg_ty }
+
+           ; return (edva { eva_arg    = ValArg arg'
+                               , eva_arg_ty = Scaled mult arg_ty }) }
+
 tcEValArg :: AppCtxt -> EValArg 'TcpInst -> TcSigmaType -> TcM (LHsExpr GhcTc)
 -- Typecheck one value argument of a function call
 tcEValArg ctxt (ValArg larg@(L arg_loc arg)) exp_arg_sigma
@@ -652,6 +676,8 @@ tcInstFun do_ql inst_final (rn_fun, fun_ctxt) fun_sigma rn_args
                        : addArgWrap wrap acc
           ; go delta' acc' (arg_ty:so_far) res_ty rest_args }
 
+    -- [EDA] TODO: Check if correct
+    --go1 delta acc so_far fun_ty eva@(EDictValArg { }) = go1 del
 
 addArgCtxt :: AppCtxt -> LHsExpr GhcRn
            -> TcM a -> TcM a
@@ -1118,6 +1144,13 @@ findNoQuantVars fun_ty args
       = go bvs res_ty rest_args
       | otherwise
       = False  -- E.g. head id 'x'
+
+    -- [EDA] TODO: Check if correct
+    go bvs fun_ty (EDictValArg {} : rest_args)
+          | Just (_, res_ty) <- tcSplitFunTy_maybe fun_ty
+          = go bvs res_ty rest_args
+          | otherwise
+          = False  -- E.g. head id 'x'
 
 
 {- *********************************************************************
