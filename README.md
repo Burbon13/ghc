@@ -1,3 +1,10 @@
+Thesis Notes
+============================
+
+Implementation attempt for the following proposal: https://dl.acm.org/doi/abs/10.1145/3299711.3242752
+
+All code changes have been marked with the `-- [EDA]` comment.
+
 The Glasgow Haskell Compiler
 ============================
 
