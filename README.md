@@ -1,3 +1,24 @@
+!!! README FIRST !!!
+============================
+
+Playground for my master thesis.
+
+Work is based on the following paper: [Coherent explicit dictionary application for Haskell](https://dl.acm.org/doi/abs/10.1145/3299711.3242752)
+
+Work is done on GHC 9.2.
+
+All of my branches start with the `razvan-` prefix.
+
+### Useful
+
+https://gitlab.haskell.org/ghc/ghc/-/wikis/building/quick-start
+
+Compiled compiler is at `/inplace/bin/ghc-stage2`.
+
+Use `make fast` inside the compiler folder.
+
+---
+
 The Glasgow Haskell Compiler
 ============================
 
