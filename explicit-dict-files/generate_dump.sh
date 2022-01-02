@@ -13,6 +13,7 @@ GHC=$CUSTOM_GHC
 rm -r $TMP_LOCATION
 
 $GHC -XDuplicateRecordFields -O2 -ddump-to-file -ddump-file-prefix="$TMP_LOCATION$1." \
+  -ddump-tc-trace \
   -ddump-parsed-ast -ddump-parsed \
   -ddump-rn-stats -ddump-rn -ddump-rn-ast \
   -ddump-tc -ddump-tc-ast -ddump-types \

@@ -312,22 +312,26 @@ tcApp :: HsExpr GhcRn -> ExpRhoType -> TcM (HsExpr GhcTc)
 -- See Note [tcApp: typechecking applications]
 tcApp rn_expr exp_res_ty
   | (fun@(rn_fun, fun_ctxt), rn_args) <- splitHsApps rn_expr
-  = do { trace "==================== [Tc/Gen/App.hs] tcApp ====================" $ return ()
-       ; trace "[Tc/Gen/App.hs] tcInferAppHead" $ return ()
+  = do { traceTc "[EDA] tcApp begin" (vcat [ text "rn_expr"       <+> ppr rn_expr
+                                           , text "exp_res_ty"    <+> ppr exp_res_ty])
        ; (tc_fun, fun_sigma) <- tcInferAppHead fun rn_args
                                     (checkingExpType_maybe exp_res_ty)
 
        -- Instantiate
-       ; trace "[Tc/Gen/App.hs] wantQuickLook" $ return ()
+       ; traceTc "[EDA] tcApp tcInferAppHead" (vcat [ text "tc_fun"       <+> ppr tc_fun
+                                                    , text "fun_sigma"    <+> ppr fun_sigma])
        ; do_ql <- wantQuickLook rn_fun
-       ; trace "[Tc/Gen/App.hs] tcInstFun" $ return ()
+       ; traceTc "[EDA] tcApp do_ql" (vcat [ text "do_ql" <+> ppr do_ql])
        ; (delta, inst_args, app_res_rho) <- tcInstFun do_ql True fun fun_sigma rn_args
 
        -- Quick look at result
-       ; trace "[Tc/Gen/App.hs] app_res_rho if else" $ return ()
+       ; traceTc "[EDA] tcApp tcInstFun" (vcat [ text "delta"          <+> ppr delta
+                                               , text "inst_args"      <+> ppr inst_args
+                                               , text "app_res_rho"    <+> ppr app_res_rho])
        ; app_res_rho <- if do_ql
                         then quickLookResultType delta app_res_rho exp_res_ty
                         else return app_res_rho
+       ; traceTc "[EDA] tcApp if do_ql" (vcat [ text "app_res_rho"  <+> ppr app_res_rho])
 
        -- Unify with expected type from the context
        -- See Note [Unify with expected type before typechecking arguments]
@@ -336,7 +340,6 @@ tcApp rn_expr exp_res_ty
        --    more confusing than helpful because the function at the head isn't in
        --    the source program; it was added by the renamer.  See
        --    Note [Handling overloaded and rebindable constructs] in GHC.Rename.Expr
-       ; trace "[Tc/Gen/App.hs] perhaps_add_res_ty_ctxt" $ return ()
        ; let  perhaps_add_res_ty_ctxt thing_inside
                  | insideExpansion fun_ctxt
                  = thing_inside
