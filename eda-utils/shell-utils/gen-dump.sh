@@ -13,6 +13,7 @@ GHC=$CUSTOM_GHC
 rm -r $TMP_LOCATION
 
 $GHC -XDuplicateRecordFields -O2 -ddump-to-file -ddump-file-prefix="$TMP_LOCATION$1." \
+  -dppr-debug \
   -ddump-tc-trace \
   -ddump-parsed-ast -ddump-parsed \
   -ddump-rn-stats -ddump-rn -ddump-rn-ast \
@@ -78,7 +79,8 @@ PrintFile "Core prep" $CORE_PREP_OUT_FILE
 echo "</body>" >>$HTML_DUMP_FILE
 echo "</html>" >>$HTML_DUMP_FILE
 
-rm "$1" "$1".o "$1".hi
+rm "$1".o "$1".hi
+# rm "$1" "$1".o "$1".hi
 
 INDEX_HTML="index.html"
 
