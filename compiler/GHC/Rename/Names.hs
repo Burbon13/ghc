@@ -855,6 +855,7 @@ getLocalNonValBinders fixity_env
              ; flds' <- mapM (newRecordSelector dup_fields_ok has_sel sub_names) flds
              ; let fld_env = case unLoc tc_decl of
                      DataDecl { tcdDataDefn = d } -> mk_fld_env d names flds'
+                     -- TODO EDA: ?? Add dictionary constructor here from ClassDecl
                      _                            -> []
              ; return (availTC main_name names flds', fld_env) }
 

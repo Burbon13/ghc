@@ -260,7 +260,7 @@ tcTyClDecls tyclds kisig_env role_annots
 
                  -- Kind and type check declarations for this group
                mapAndUnzipM (tcTyClDecl roles) tyclds
-           ; return (tycons, concat data_deriv_infos, kindless)
+           ; return (concat tycons, concat data_deriv_infos, kindless)
            } }
   where
     ppr_tc_tycon tc = parens (sep [ ppr (tyConName tc) <> comma
@@ -740,11 +740,15 @@ generaliseTyClDecl inferred_tc_env (L _ decl)
        ; mapAndReportM generaliseTcTyCon swizzled_infos }
   where
     tycld_names :: TyClDecl GhcRn -> [Name]
-    tycld_names decl = tcdName decl : at_names decl
+    tycld_names decl = tcdName decl : cl_dict_name decl ++ at_names decl
 
     at_names :: TyClDecl GhcRn -> [Name]
     at_names (ClassDecl { tcdATs = ats }) = map (familyDeclName . unLoc) ats
     at_names _ = []  -- Only class decls have associated types
+
+    cl_dict_name :: TyClDecl GhcRn -> [Name]
+    cl_dict_name decl@(ClassDecl { }) = [tcdDictName decl]
+    cl_dict_name _ = []  -- Only class decls will have a dictionary
 
     skolemise_tc_tycon :: Name -> TcM (TcTyCon, ScopedPairs)
     -- Zonk and skolemise the Specified and Required binders
@@ -1307,6 +1311,35 @@ checkInitialKinds decls
     check_initial_kind (ldecl, msig) =
       addLocMA (getInitialKind (InitialKindCheck msig)) ldecl
 
+-- EDA: Refactor/move to a proper place.
+-- Create the dictionary TyCon for a type class
+-- For step 1 of type checking: kind checking
+mkDictTyCon1 :: Name -> TyCon -> TyCon
+mkDictTyCon1 name tc = tc
+    { tyConUnique  = getUnique name
+    , tyConName    = name
+    , tyConBinders = []
+    , tyConTyVars  = []
+    , tyConArity   = 0
+    , tyConKind    = mkTyConKind [] liftedTypeKind
+    , tyConResKind = liftedTypeKind
+}
+
+-- EDA: Refactor/move to a proper place.
+-- EDA: Create the dictionary TyCon for a type class
+-- For step 2 of type checking: type checking
+mkDictTyCon2 :: Name -> TyCon
+mkDictTyCon2 name =
+  mkAlgTyCon name
+             []
+             liftedTypeKind
+             []
+             Nothing
+             []
+             AbstractTyCon
+             (VanillaAlgTyCon name)
+             False
+
 -- | Get the initial kind of a TyClDecl, either generalized or non-generalized,
 -- depending on the 'InitialKindStrategy'.
 getInitialKind :: InitialKindStrategy -> TyClDecl GhcRn -> TcM [TcTyCon]
@@ -1327,6 +1360,7 @@ getInitialKind :: InitialKindStrategy -> TyClDecl GhcRn -> TcM [TcTyCon]
 getInitialKind strategy
     (ClassDecl { tcdLName = L _ name
                , tcdTyVars = ktvs
+               , tcdLDictTy = L _ dict
                , tcdATs = ats })
   = do { cls <- kcDeclHeader strategy name ClassFlavour ktvs $
                 return (TheKind constraintKind)
@@ -1335,7 +1369,8 @@ getInitialKind strategy
        ; inner_tcs <-
            tcExtendNameTyVarEnv parent_tv_prs $
            mapM (addLocMA (getAssocFamInitialKind cls)) ats
-       ; return (cls : inner_tcs) }
+       ; let new_impl_dict = mkDictTyCon1 dict cls  -- TODO EDA: Take the strategy into account?
+       ; return (cls : new_impl_dict : inner_tcs) }
   where
     getAssocFamInitialKind cls =
       case strategy of
@@ -2322,11 +2357,11 @@ The IRs are already well-equipped to handle unlifted types, and unlifted
 datatypes are just a new sub-class thereof.
 -}
 
-tcTyClDecl :: RolesInfo -> LTyClDecl GhcRn -> TcM (TyCon, [DerivInfo])
+tcTyClDecl :: RolesInfo -> LTyClDecl GhcRn -> TcM ([TyCon], [DerivInfo])
 tcTyClDecl roles_info (L loc decl)
   | Just thing <- wiredInNameTyThing_maybe (tcdName decl)
   = case thing of -- See Note [Declarations for wired-in things]
-      ATyCon tc -> return (tc, wiredInDerivInfo tc decl)
+      ATyCon tc -> return ([tc], wiredInDerivInfo tc decl)
       _ -> pprPanic "tcTyClDecl" (ppr thing)
 
   | otherwise
@@ -2353,10 +2388,10 @@ wiredInDerivInfo tycon decl
 wiredInDerivInfo _ _ = []
 
   -- "type family" declarations
-tcTyClDecl1 :: Maybe Class -> RolesInfo -> TyClDecl GhcRn -> TcM (TyCon, [DerivInfo])
+tcTyClDecl1 :: Maybe Class -> RolesInfo -> TyClDecl GhcRn -> TcM ([TyCon], [DerivInfo])
 tcTyClDecl1 parent _roles_info (FamDecl { tcdFam = fd })
   = fmap noDerivInfos $
-    tcFamDecl1 parent fd
+    fmap return (tcFamDecl1 parent fd)
 
   -- "type" synonym declaration
 tcTyClDecl1 _parent roles_info
@@ -2364,17 +2399,21 @@ tcTyClDecl1 _parent roles_info
                      , tcdRhs   = rhs })
   = ASSERT( isNothing _parent )
     fmap noDerivInfos $
-    tcTySynRhs roles_info tc_name rhs
+    fmap return (tcTySynRhs roles_info tc_name rhs)
 
   -- "data/newtype" declaration
 tcTyClDecl1 _parent roles_info
             decl@(DataDecl { tcdLName = L _ tc_name
                            , tcdDataDefn = defn })
   = ASSERT( isNothing _parent )
-    tcDataDefn (tcMkDeclCtxt decl) roles_info tc_name defn
+    do {
+        (tyCons, deriv_info) <- tcDataDefn (tcMkDeclCtxt decl) roles_info tc_name defn
+      ; return ([tyCons], deriv_info)
+      }
 
 tcTyClDecl1 _parent roles_info
             (ClassDecl { tcdLName = L _ class_name
+                       , tcdLDictTy = L _ dict_name
                        , tcdCtxt = hs_ctxt
                        , tcdMeths = meths
                        , tcdFDs = fundeps
@@ -2384,7 +2423,10 @@ tcTyClDecl1 _parent roles_info
   = ASSERT( isNothing _parent )
     do { clas <- tcClassDecl1 roles_info class_name hs_ctxt
                               meths fundeps sigs ats at_defs
-       ; return (noDerivInfos (classTyCon clas)) }
+       ; let (tyCon, noDio) = noDerivInfos (classTyCon clas)
+       ; let dictTyCon = mkDictTyCon2 dict_name
+       ; return ([tyCon, dictTyCon], noDio)
+       }
 
 
 {- *********************************************************************

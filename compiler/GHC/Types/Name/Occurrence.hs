@@ -68,6 +68,7 @@ module GHC.Types.Name.Occurrence (
         mkDataTOcc, mkDataCOcc, mkDataConWorkerOcc,
         mkSuperDictSelOcc, mkSuperDictAuxOcc,
         mkLocalOcc, mkMethodOcc, mkInstTyTcOcc,
+        mkDictRecordTyConOcc, mkDictRecordOcc,
         mkInstTyCoOcc, mkEqPredCoOcc,
         mkRecFldSelOcc,
         mkTyConRepOcc,
@@ -753,6 +754,18 @@ guys never show up in error messages.  What a hack.
 mkMethodOcc :: OccName -> OccName
 mkMethodOcc occ@(OccName VarName _) = occ
 mkMethodOcc occ                     = mk_simple_deriv varName "$m" occ
+
+{-
+Functions for generating the name of the implicit dictionary of a type class
+which is going to be exposed.
+-}
+
+mkDictRecordTyConOcc :: OccName -> OccName
+mkDictRecordTyConOcc = mkDictRecordOcc tcClsName
+
+mkDictRecordOcc :: NameSpace -> OccName -> OccName
+mkDictRecordOcc ns clsName =
+    mkOccNameFS ns (occNameFS clsName `mappend` ".Dict")
 
 {-
 ************************************************************************

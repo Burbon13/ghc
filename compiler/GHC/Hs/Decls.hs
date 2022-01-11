@@ -37,7 +37,7 @@ module GHC.Hs.Decls (
   TyClGroup(..),
   tyClGroupTyClDecls, tyClGroupInstDecls, tyClGroupRoleDecls,
   tyClGroupKindSigs,
-  isClassDecl, isDataDecl, isSynDecl, tcdName,
+  isClassDecl, isDataDecl, isSynDecl, tcdName, tcdDictName,
   isFamilyDecl, isTypeFamilyDecl, isDataFamilyDecl,
   isOpenTypeFamilyInfo, isClosedTypeFamilyInfo,
   tyFamInstDeclName, tyFamInstDeclLName,
@@ -368,6 +368,18 @@ tyClDeclLName (ClassDecl { tcdLName = ln }) = ln
 tcdName :: Anno (IdGhcP p) ~ SrcSpanAnnN
         => TyClDecl (GhcPass p) -> IdP (GhcPass p)
 tcdName = unLoc . tyClDeclLName
+
+-- EDA TODO: Non-exhaustive pattern match
+-- Quick and dirty way to retrieve the name of the dictionary of a type class.
+tyClDictDeclLName :: Anno (IdGhcP p) ~ SrcSpanAnnN
+              => TyClDecl (GhcPass p) -> LocatedN (IdP (GhcPass p))
+tyClDictDeclLName (ClassDecl { tcdLDictTy = ln }) = ln
+
+-- EDA
+-- Quick and dirty way to retrieve the name of the dictionary of a type class.
+tcdDictName :: Anno (IdGhcP p) ~ SrcSpanAnnN
+        => TyClDecl (GhcPass p) -> IdP (GhcPass p)
+tcdDictName = unLoc . tyClDictDeclLName
 
 -- | Does this declaration have a complete, user-supplied kind signature?
 -- See Note [CUSKs: complete user-supplied kind signatures]

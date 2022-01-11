@@ -490,7 +490,7 @@ instance HasHaddock (HsDecl GhcPs) where
   --
   addHaddock (TyClD _ decl)
     | ClassDecl { tcdCExt = (x, NoAnnSortKey, tcdLayout),
-                  tcdCtxt, tcdLName, tcdTyVars, tcdFixity, tcdFDs,
+                  tcdCtxt, tcdLName, tcdTyVars, tcdLDictTy, tcdFixity, tcdFDs,
                   tcdSigs, tcdMeths, tcdATs, tcdATDefs } <- decl
     = do
         registerHdkA tcdLName
@@ -501,7 +501,7 @@ instance HasHaddock (HsDecl GhcPs) where
         pure $
           let (tcdMeths', tcdSigs', tcdATs', tcdATDefs', _, tcdDocs) = partitionBindsAndSigs where_cls'
               decl' = ClassDecl { tcdCExt = (x, NoAnnSortKey, tcdLayout)
-                                , tcdCtxt, tcdLName, tcdTyVars, tcdFixity, tcdFDs
+                                , tcdCtxt, tcdLName, tcdTyVars, tcdLDictTy, tcdFixity, tcdFDs
                                 , tcdSigs = tcdSigs'
                                 , tcdMeths = tcdMeths'
                                 , tcdATs = tcdATs'
