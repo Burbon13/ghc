@@ -765,7 +765,8 @@ mkDictRecordTyConOcc = mkDictRecordOcc tcClsName
 
 mkDictRecordOcc :: NameSpace -> OccName -> OccName
 mkDictRecordOcc ns clsName =
-    mkOccNameFS ns (occNameFS clsName `mappend` ".Dict")
+    mkOccNameFS ns (occNameFS clsName `mappend` "__Dict")
+    -- mkOccNameFS ns (occNameFS clsName `mappend` ".Dict")
 
 {-
 ************************************************************************

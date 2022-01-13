@@ -9,6 +9,6 @@ class Train a where
   transform :: Transport a => a -> a
 
 class Transport a where
-  transformTrain :: a -> Train.Dict -> Train.Dict
-  printTrain :: a -> Train.Dict -> String
+  transformTrain :: a -> Train__Dict -> Train__Dict
+  printTrain :: a -> Train__Dict -> String
 
