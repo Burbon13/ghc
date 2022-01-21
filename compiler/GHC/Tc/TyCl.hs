@@ -1311,34 +1311,7 @@ checkInitialKinds decls
     check_initial_kind (ldecl, msig) =
       addLocMA (getInitialKind (InitialKindCheck msig)) ldecl
 
--- EDA: Refactor/move to a proper place.
--- Create the dictionary TyCon for a type class
--- For step 1 of type checking: kind checking
-mkDictTyCon1 :: Name -> TyCon -> TyCon
-mkDictTyCon1 name tc = tc
-    { tyConUnique  = getUnique name
-    , tyConName    = name
-    , tyConBinders = []
-    , tyConTyVars  = []
-    , tyConArity   = 0
-    , tyConKind    = mkTyConKind [] liftedTypeKind
-    , tyConResKind = liftedTypeKind
-}
 
--- EDA: Refactor/move to a proper place.
--- EDA: Create the dictionary TyCon for a type class
--- For step 2 of type checking: type checking
-mkDictTyCon2 :: Name -> TyCon
-mkDictTyCon2 name =
-  mkAlgTyCon name
-             []
-             liftedTypeKind
-             []
-             Nothing
-             []
-             AbstractTyCon
-             (VanillaAlgTyCon name)
-             False
 
 -- | Get the initial kind of a TyClDecl, either generalized or non-generalized,
 -- depending on the 'InitialKindStrategy'.
@@ -1369,7 +1342,7 @@ getInitialKind strategy
        ; inner_tcs <-
            tcExtendNameTyVarEnv parent_tv_prs $
            mapM (addLocMA (getAssocFamInitialKind cls)) ats
-       ; let new_impl_dict = mkDictTyCon1 dict cls  -- TODO EDA: Take the strategy into account?
+       ; let new_impl_dict = mkDictTcTyCon dict cls -- TODO EDA: Take the strategy into account?
        ; return (cls : new_impl_dict : inner_tcs) }
   where
     getAssocFamInitialKind cls =
@@ -2424,7 +2397,7 @@ tcTyClDecl1 _parent roles_info
     do { clas <- tcClassDecl1 roles_info class_name hs_ctxt
                               meths fundeps sigs ats at_defs
        ; let (tyCon, noDio) = noDerivInfos (classTyCon clas)
-       ; let dictTyCon = mkDictTyCon2 dict_name
+       ; let dictTyCon = mkDictTyCon dict_name tyCon
        ; return ([tyCon, dictTyCon], noDio)
        }
 

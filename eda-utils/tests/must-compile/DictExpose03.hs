@@ -8,8 +8,8 @@ class Train a where
   choo_choo :: a -> String
 
 class Transport a where
-  transformTrain :: a -> Train__Dict -> Train__Dict
-  printTrain :: a -> Train__Dict -> String
+  transformTrain :: a -> Train__Dict a -> Train__Dict a
+  printTrain :: a -> Train__Dict a -> String
 
 instance Transport Int where
   transformTrain a td = td

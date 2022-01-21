@@ -44,6 +44,8 @@ module GHC.Core.TyCon(
         mkPromotedDataCon,
         mkTcTyCon,
         noTcTyConScopedTyVars,
+        mkDictTcTyCon,   -- EDA
+        mkDictTyCon,     -- EDA
 
         -- ** Predicates on TyCons
         isAlgTyCon, isVanillaAlgTyCon, isConstraintKindCon,
@@ -1864,6 +1866,45 @@ mkFamilyTyCon name binders res_kind resVar flav parent inj
             , famTcInj     = inj
             }
     in tc
+
+
+
+
+-- Create the dictionary TcTyCon for a type class
+-- For step 1 of type checking: kind checking
+mkDictTcTyCon :: Name -> TyCon -> TyCon
+mkDictTcTyCon name cls@(TcTyCon {
+      tyConBinders = binders,
+      tcTyConScopedTyVars = scopedTyVars,
+      tcTyConIsPoly = poly
+    }) =
+    mkTcTyCon name
+              binders
+              liftedTypeKind
+              scopedTyVars
+              poly
+              DataTypeFlavour
+mkDictTcTyCon _ _ = pprPanic "mkDictTcTyCon" (ppr "Expected second parameter to be TcTyCon")
+
+-- Create the dictionary TyCon for a type class
+-- For step 2 of type checking: type checking
+mkDictTyCon :: Name -> TyCon -> TyCon
+mkDictTyCon name cls@(AlgTyCon {
+    tyConBinders = binders,
+    tcRoles = roles,
+    algTcStupidTheta = stupid
+  }) =
+  mkAlgTyCon name
+             binders
+             liftedTypeKind
+             roles
+             Nothing
+             stupid
+             AbstractTyCon
+             (VanillaAlgTyCon name)
+             False
+mkDictTyCon _ _ = pprPanic "mkDictTyCon" (ppr "Expected second parameter to be AlgTyCon")
+
 
 
 -- | Create a promoted data constructor 'TyCon'
