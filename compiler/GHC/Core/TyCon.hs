@@ -148,7 +148,8 @@ import {-# SOURCE #-} GHC.Builtin.Types
 import {-# SOURCE #-} GHC.Core.DataCon
    ( DataCon, dataConFieldLabels
    , dataConTyCon, dataConFullSig
-   , isUnboxedSumDataCon )
+   , isUnboxedSumDataCon
+   , mkDictDataCon )
 import GHC.Builtin.Uniques
   ( tyConRepNameUnique
   , dataConTyRepNameUnique )
@@ -1886,24 +1887,42 @@ mkDictTcTyCon name cls@(TcTyCon {
               DataTypeFlavour
 mkDictTcTyCon _ _ = pprPanic "mkDictTcTyCon" (ppr "Expected second parameter to be TcTyCon")
 
+getUniqueDataCon :: [DataCon] -> DataCon
+getUniqueDataCon [dc] = dc
+getUniqueDataCon dcs = pprPanic "getUniqueDataCon" (ppr "Expected only 1 DataCon. Found more or less") -- TODO EDA: More explicit error
+
+extractUniqueDataCon :: AlgTyConRhs -> DataCon
+extractUniqueDataCon (DataTyCon {data_cons = dataCons}) = getUniqueDataCon dataCons
+extractUniqueDataCon (NewTyCon {data_con = dataCon}) = dataCon
+extractUniqueDataCon _ = pprPanic "extractUniqueDataCon" (ppr "Expected DataTyCon or NewTyCon")
+
+
+mkDictDataConList :: Name -> TyCon -> AlgTyConRhs -> [DataCon]
+mkDictDataConList name dictTyCon tcRhs =
+    let dataCon = mkDictDataCon name dictTyCon (extractUniqueDataCon tcRhs)
+    in [dataCon]
+
+
 -- Create the dictionary TyCon for a type class
 -- For step 2 of type checking: type checking
-mkDictTyCon :: Name -> TyCon -> TyCon
+mkDictTyCon :: Name -> TyCon -> DataCon -> TyCon
 mkDictTyCon name cls@(AlgTyCon {
     tyConBinders = binders,
     tcRoles = roles,
-    algTcStupidTheta = stupid
-  }) =
-  mkAlgTyCon name
-             binders
-             liftedTypeKind
-             roles
-             Nothing
-             stupid
-             AbstractTyCon
-             (VanillaAlgTyCon name)
-             False
-mkDictTyCon _ _ = pprPanic "mkDictTyCon" (ppr "Expected second parameter to be AlgTyCon")
+    algTcStupidTheta = stupid,
+    algTcRhs = tcRhs
+  }) eddatacon = dictTyCon
+  where dictTyCon = mkAlgTyCon name
+                     binders
+                     liftedTypeKind
+                     roles
+                     Nothing
+                     stupid
+                     -- AbstractTyCon
+                     (mkDataTyConRhs [eddatacon])
+                     (VanillaAlgTyCon name)
+                     False
+mkDictTyCon _ _ _ = pprPanic "mkDictTyCon" (ppr "Expected second parameter to be AlgTyCon")
 
 
 

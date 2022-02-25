@@ -2394,10 +2394,12 @@ tcTyClDecl1 _parent roles_info
                        , tcdATs = ats
                        , tcdATDefs = at_defs })
   = ASSERT( isNothing _parent )
-    do { clas <- tcClassDecl1 roles_info class_name hs_ctxt
+    do { traceTc "tcTyClDecl1 - ClassDecl  1" (ppr class_name $$ ppr dict_name)
+       ; (clas, edddatacon) <- tcClassDecl1 roles_info class_name dict_name hs_ctxt
                               meths fundeps sigs ats at_defs
+       ; traceTc "tcTyClDecl1 - ClassDecl  2" (ppr class_name $$ ppr dict_name)
        ; let (tyCon, noDio) = noDerivInfos (classTyCon clas)
-       ; let dictTyCon = mkDictTyCon dict_name tyCon
+       ; let dictTyCon = mkDictTyCon dict_name tyCon edddatacon
        ; return ([tyCon, dictTyCon], noDio)
        }
 
@@ -2408,16 +2410,16 @@ tcTyClDecl1 _parent roles_info
 *                                                                      *
 ********************************************************************* -}
 
-tcClassDecl1 :: RolesInfo -> Name -> Maybe (LHsContext GhcRn)
+tcClassDecl1 :: RolesInfo -> Name -> Name -> Maybe (LHsContext GhcRn)
              -> LHsBinds GhcRn -> [LHsFunDep GhcRn] -> [LSig GhcRn]
              -> [LFamilyDecl GhcRn] -> [LTyFamDefltDecl GhcRn]
-             -> TcM Class
-tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
-  = fixM $ \ clas ->
+             -> TcM (Class, DataCon)
+tcClassDecl1 roles_info class_name dict_name hs_ctxt meths fundeps sigs ats at_defs
+  = fixM $ \ (clas, eddatacon) ->
     -- We need the knot because 'clas' is passed into tcClassATs
     bindTyClTyVars class_name $ \ _ binders res_kind ->
     do { checkClassKindSig res_kind
-       ; traceTc "tcClassDecl 1" (ppr class_name $$ ppr binders)
+       ; traceTc "tcClassDecl 1" (ppr class_name $$ ppr dict_name)
        ; let tycon_name = class_name        -- We use the same name
              roles = roles_info tycon_name  -- for TyCon and Class
 
@@ -2465,9 +2467,11 @@ tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
                   = Just (ctxt, at_stuff, sig_stuff, mindef)
 
        ; clas <- buildClass class_name binders roles fds body
+       ; let (tyCon, noDio) = noDerivInfos (classTyCon clas)
+       ; eddatacon <- buildClassDictDataCon dict_name tyCon binders roles fds body
        ; traceTc "tcClassDecl" (ppr fundeps $$ ppr binders $$
                                 ppr fds)
-       ; return clas }
+       ; return (clas, eddatacon) }
   where
     skol_info = TyConSkol ClassFlavour class_name
     tc_fundep :: GHC.Hs.FunDep GhcRn -> TcM ([Var],[Var])
@@ -3448,7 +3452,21 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs res_kind tag_map
                   -- NB:  we put data_tc, the type constructor gotten from the
                   --      constructor type signature into the data constructor;
                   --      that way checkValidDataCon can complain if it's wrong.
-
+       ; traceTc "[EDA](tcC onDecl) fam_envs" (ppr fam_envs)
+       ; traceTc "[EDA](tcC onDecl) name" (ppr name)
+       ; traceTc "[EDA](tcC onDecl) rep_nm" (ppr rep_nm)
+       ; traceTc "[EDA](tcC onDecl) stricts" (ppr stricts)
+       ; traceTc "[EDA](tcC onDecl) field_lbls" (ppr field_lbls)
+       ; traceTc "[EDA](tc ConDecl) tc_tvs" (ppr tc_tvs)
+       ; traceTc "[EDA](tc ConDecl) ex_tvs" (ppr ex_tvs)
+       ; traceTc "[EDA](tc ConDecl) user_tvbs" (ppr user_tvbs)
+       ; traceTc "[EDA](t cConDecl) ctxt" (ppr ctxt)
+       ; traceTc "[EDA](t cConDecl) arg_tys" (ppr arg_tys)
+       --; traceTc "[EDA](tcC onDecl) user_res_ty" (ppr user_res_ty)  LOOPS?!
+       --; traceTc "[EDA](tc ConDecl) rep_tycon" (ppr rep_tycon)      LOOPS?!
+       --; traceTc "[EDA](tcCo nDecl) tag_map" (ppr tag_map)          LOOPS?!
+       ; traceTc "[EDA](tcConD ecl) ex_tvs" (ppr ex_tvs)
+       ; traceTc "[EDA](dataCon) dataCon" (ppr dc)
        ; return [dc] }
   where
     skol_info = DataConSkol name

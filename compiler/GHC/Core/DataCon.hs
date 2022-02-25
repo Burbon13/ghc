@@ -60,7 +60,10 @@ module GHC.Core.DataCon (
         specialPromotedDc,
 
         -- ** Promotion related functions
-        promoteDataCon
+        promoteDataCon,
+
+        -- ** Explicit dictionary application
+        mkDictDataCon
     ) where
 
 #include "HsVersions.h"
@@ -484,6 +487,8 @@ data DataCon
                                -- See Note [Promoted data constructors] in GHC.Core.TyCon
   }
 
+instance Show DataCon where
+  show _ = "HOLOH"
 
 {- Note [TyVarBinders in DataCons]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1041,6 +1046,43 @@ mkDataCon name declared_infix prom_info
     roles = map (\tv -> if isTyVar tv then Nominal else Phantom)
                 (univ_tvs ++ ex_tvs)
             ++ map (const Representational) (theta ++ map scaledThing orig_arg_tys)
+
+-- Creates the DataCon corresponding to an explicit dictionary for a type class
+mkDictDataCon :: Name -> TyCon -> DataCon -> DataCon
+mkDictDataCon name dictTyCon cdc@(MkData {
+       dcName = dname,
+       dcUnique = unique,
+       dcTag    = tag,
+       dcVanilla = vanilla,
+       dcUnivTyVars  = univtyvars,
+       dcExTyCoVars  = extycovars,
+       dcUserTyVarBinders = usertyvarsbinders,
+       dcEqSpec = eqspec,
+       dcOtherTheta = othertheta,
+       dcStupidTheta = stupidtheta,
+       dcOrigArgTys = origargtys,
+       dcOrigResTy = origresty,
+       dcSrcBangs = srcbangs,
+       dcFields  = fields,
+       dcWorkId = workid,
+       dcRep    = rec,
+       dcRepArity    = reparity,
+       dcSourceArity = sourcearity,
+       dcRepTyCon  = reptycon,
+       dcRepType   = repty,
+       dcInfix = infixx,
+       dcPromoted = promoted                                   -- See Note [Promoted data constructors] in GHC.Core.TyCon
+  }) =
+  cdc {
+    dcName = name,
+    dcUnique = getUnique name,
+    dcRepTyCon = dictTyCon,
+    dcPromoted = dictTyCon,
+    dcRepType = tyConNullaryTy dictTyCon,
+    dcOrigResTy = tyConNullaryTy dictTyCon,
+    dcUnivTyVars = tyConTyVars dictTyCon
+  }
+
 
 freshNames :: [Name] -> [Name]
 -- Make an infinite list of Names whose Uniques and OccNames

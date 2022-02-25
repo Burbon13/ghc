@@ -10,7 +10,7 @@
 module GHC.Tc.TyCl.Build (
         buildDataCon,
         buildPatSyn,
-        TcMethInfo, MethInfo, buildClass,
+        TcMethInfo, MethInfo, buildClass, buildClassDictDataCon,
         mkNewTyConRhs,
         newImplicitBinder, newTyConRepName
     ) where
@@ -364,6 +364,53 @@ buildClass tycon_name binders roles fds
     mk_dm_info op_name (Just (GenericDM (loc, dm_ty)))
       = do { dm_name <- newImplicitBinderLoc op_name mkDefaultMethodOcc loc
            ; return (Just (dm_name, GenericDM dm_ty)) }
+
+
+buildClassDictDataCon :: Name  -- Name of the class/tycon (they have the same Name)
+           -> KnotTied TyCon
+           -> [TyConBinder]                -- Of the tycon
+           -> [Role]
+           -> [FunDep TyVar]               -- Functional dependencies
+           -- Super classes, associated types, method info, minimal complete def.
+           -- This is Nothing if the class is abstract.
+           -> Maybe (KnotTied ThetaType, [ClassATItem], [KnotTied MethInfo], ClassMinimalDef)
+           -> TcRnIf m n DataCon
+
+buildClassDictDataCon tycon_name tycon binders roles fds
+           (Just (sc_theta, at_items, sig_stuff, mindef))
+  = fixM  $ \ rec_clas ->       -- Only name generation inside loop
+    do  { traceIf (text "buildClass")
+
+        ; datacon_name <- newImplicitBinder tycon_name mkClassDataConOcc
+        ; tc_rep_name  <- newTyConRepName tycon_name
+        ; let use_newtype = isSingleton arg_tys
+              op_tys     = [ty | (_,ty,_) <- sig_stuff]
+              op_names   = [op | (op,_,_) <- sig_stuff]
+              arg_tys    = sc_theta ++ op_tys
+              univ_bndrs = tyConInvisTVBinders binders
+              univ_tvs   = binderVars univ_bndrs
+
+        ; rep_nm   <- newTyConRepName datacon_name
+        ; dict_con <- buildDataCon (panic "buildClass: FamInstEnvs")
+                                   datacon_name
+                                   False        -- Not declared infix
+                                   rep_nm
+                                   (map (const no_bang) [])
+                                   (Just (map (const HsLazy) []))
+                                   [{- No fields -}]
+                                   univ_tvs
+                                   [{- no existentials -}]
+                                   univ_bndrs
+                                   [{- No GADT equalities -}]
+                                   [{- No theta -}]
+                                   (map unrestricted arg_tys) -- type classes are unrestricted
+                                   (mkTyConApp tycon (mkTyVarTys univ_tvs))
+                                   tycon
+                                   (mkTyConTagMap tycon)
+        ; return dict_con }
+  where
+    no_bang = HsSrcBang NoSourceText NoSrcUnpack NoSrcStrict
+
 
 {-
 Note [Class newtypes and equality predicates]

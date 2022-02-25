@@ -27,6 +27,7 @@ dataConStupidTheta :: DataCon -> ThetaType
 dataConFullSig :: DataCon
                -> ([TyVar], [TyCoVar], [EqSpec], ThetaType, [Scaled Type], Type)
 isUnboxedSumDataCon :: DataCon -> Bool
+mkDictDataCon :: Name -> TyCon -> DataCon -> DataCon
 
 instance Eq DataCon
 instance Uniquable DataCon
