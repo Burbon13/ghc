@@ -247,3 +247,6 @@ ghc.nix/
 
 # clangd
 .clangd
+
+# IntelIJ
+.idea

@@ -20,3 +20,5 @@
 /include/HsBaseConfig.h
 /include/HsBaseConfig.h.in
 
+# Is this needed?
+config.sub
