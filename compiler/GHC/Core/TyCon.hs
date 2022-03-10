@@ -1888,22 +1888,22 @@ mkDictTcTyCon _ _ = pprPanic "mkDictTcTyCon" (ppr "Expected second parameter to 
 
 -- Create the dictionary TyCon for a type class
 -- For step 2 of type checking: type checking
-mkDictTyCon :: Name -> TyCon -> TyCon
+mkDictTyCon :: Name -> TyCon -> DataCon -> TyCon
 mkDictTyCon name cls@(AlgTyCon {
     tyConBinders = binders,
     tcRoles = roles,
     algTcStupidTheta = stupid
-  }) =
+  }) eddatacon =
   mkAlgTyCon name
              binders
              liftedTypeKind
              roles
              Nothing
              stupid
-             AbstractTyCon
+             (mkDataTyConRhs [eddatacon])
              (VanillaAlgTyCon name)
              False
-mkDictTyCon _ _ = pprPanic "mkDictTyCon" (ppr "Expected second parameter to be AlgTyCon")
+mkDictTyCon _ _ _ = pprPanic "mkDictTyCon" (ppr "Expected second parameter to be AlgTyCon")
 
 
 

@@ -13,16 +13,21 @@ GHC=$CUSTOM_GHC
 
 rm -r "$TMP_LOCATION"
 
-$GHC -XDuplicateRecordFields \
-  -O2 \
+$GHC -O2 \
   -ddump-to-file \
   -ddump-file-prefix="$TMP_LOCATION$BASE." \
   -ddump-tc-trace \
-  -ddump-parsed-ast -ddump-parsed \
-  -ddump-rn-stats -ddump-rn -ddump-rn-ast \
-  -ddump-tc -ddump-tc-ast -ddump-types \
-  -ddump-ds -ddump-ds-preopt \
-  -ddump-simpl-stats -ddump-simpl \
+  -ddump-parsed-ast \
+  -ddump-parsed \
+  -ddump-rn \
+  -ddump-rn-ast \
+  -ddump-tc \
+  -ddump-tc-ast \
+  -ddump-types \
+  -ddump-ds \
+  -ddump-ds-preopt \
+  -ddump-simpl-stats \
+  -ddump-simpl \
   -ddump-prep \
   $PROGRAM
 
@@ -52,6 +57,15 @@ DESUGAR_AFTER_OPT_OUT_FILE="$TMP_LOCATION$BASE.dump-ds"
 TIDY_CORE_OUT_FILE="$TMP_LOCATION$BASE.dump-simpl"
 CORE_PREP_OUT_FILE="$TMP_LOCATION$BASE.dump-prep"
 
+# Remove comment lines from the dump files
+sed -i '/^--/d' "$DESUGAR_BEFORE_OPT_OUT_FILE"
+sed -i '/^--/d' "$DESUGAR_AFTER_OPT_OUT_FILE"
+sed -i '/^--/d' "$DESUGAR_BEFORE_OPT_OUT_FILE"
+sed -i '/^--/d' "$TIDY_CORE_OUT_FILE"
+sed -i '/^--/d' "$CORE_PREP_OUT_FILE"
+
+
+# Generate the HTML report
 echo "<html>" >$HTML_DUMP_FILE
 echo "<body>" >>$HTML_DUMP_FILE
 
@@ -70,13 +84,10 @@ PrintFile "Core prep" $CORE_PREP_OUT_FILE
 echo "</body>" >>$HTML_DUMP_FILE
 echo "</html>" >>$HTML_DUMP_FILE
 
-rm "$1".o "$1".hi
-
 INDEX_HTML="index.html"
 
 echo "<html>" >$INDEX_HTML
 echo "<body>" >>$INDEX_HTML
-
 echo "<ul>" >>$INDEX_HTML
 
 find . -name '*.html' | while read LINE; do
@@ -84,9 +95,11 @@ find . -name '*.html' | while read LINE; do
 done
 
 echo "</ul>" >>$INDEX_HTML
-
 echo "</body>" >>$INDEX_HTML
 echo "</html>" >>$INDEX_HTML
 
 echo "Go to:"
 echo "file:///$PWD/index.html"
+
+# Remove temporary generated files
+rm "$1".o "$1".hi

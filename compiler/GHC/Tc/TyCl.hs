@@ -186,6 +186,8 @@ tcTyClGroup (TyClGroup { group_tyclds = tyclds
               ; tcTyClDecls tyclds kisig_env role_annots }
 
            -- Step 1.5: Make sure we don't have any type synonym cycles
+       ; traceTc "[EDA] tyclss" (ppr tyclss)
+       ; traceTc "[EDA] kindless" (ppr kindless)
        ; traceTc "Starting synonym cycle check" (ppr tyclss)
        ; home_unit <- hsc_home_unit <$> getTopEnv
        ; checkSynCycles (homeUnitAsUnit home_unit) tyclss tyclds
@@ -206,7 +208,11 @@ tcTyClGroup (TyClGroup { group_tyclds = tyclds
            -- Step 3: Add the implicit things;
            -- we want them in the environment because
            -- they may be mentioned in interface files
+
+           -- Our data constructor seems to be implicit, not good
+       ; traceTc "[EDA] Adding to global env following tycons" (ppr tyclss)
        ; gbl_env <- addTyConsToGblEnv tyclss
+       ; traceTc "[EDA] Finished adding tycons to global env" (ppr tyclss)
 
            -- Step 4: check instance declarations
        ; (gbl_env', inst_info, datafam_deriv_info) <-
@@ -216,6 +222,7 @@ tcTyClGroup (TyClGroup { group_tyclds = tyclds
        ; let deriv_info = datafam_deriv_info ++ data_deriv_info
        ; let gbl_env'' = gbl_env'
                 { tcg_ksigs = tcg_ksigs gbl_env' `unionNameSet` kindless }
+       ; traceTc "[EDA] Finished tyclgroup thingy" (ppr "")
        ; return (gbl_env'', inst_info, deriv_info) }
 
 -- Gives the kind for every TyCon that has a standalone kind signature
@@ -2394,10 +2401,12 @@ tcTyClDecl1 _parent roles_info
                        , tcdATs = ats
                        , tcdATDefs = at_defs })
   = ASSERT( isNothing _parent )
-    do { clas <- tcClassDecl1 roles_info class_name hs_ctxt
+    do { traceTc "tcTyClDecl1 [1]" (ppr class_name)
+       ; (clas, dictTyCon) <- tcClassDecl1 roles_info class_name dict_name hs_ctxt
                               meths fundeps sigs ats at_defs
+       ; traceTc "tcTyClDecl1 [2]" (ppr class_name)
        ; let (tyCon, noDio) = noDerivInfos (classTyCon clas)
-       ; let dictTyCon = mkDictTyCon dict_name tyCon
+       ; traceTc "tcTyClDecl1 [3]" (ppr class_name)
        ; return ([tyCon, dictTyCon], noDio)
        }
 
@@ -2408,15 +2417,16 @@ tcTyClDecl1 _parent roles_info
 *                                                                      *
 ********************************************************************* -}
 
-tcClassDecl1 :: RolesInfo -> Name -> Maybe (LHsContext GhcRn)
+tcClassDecl1 :: RolesInfo -> Name -> Name -> Maybe (LHsContext GhcRn)
              -> LHsBinds GhcRn -> [LHsFunDep GhcRn] -> [LSig GhcRn]
              -> [LFamilyDecl GhcRn] -> [LTyFamDefltDecl GhcRn]
-             -> TcM Class
-tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
-  = fixM $ \ clas ->
+             -> TcM (Class, TyCon)
+tcClassDecl1 roles_info class_name dict_name hs_ctxt meths fundeps sigs ats at_defs
+  = fixM $ \ someStrangeParam ->
     -- We need the knot because 'clas' is passed into tcClassATs
     bindTyClTyVars class_name $ \ _ binders res_kind ->
     do { checkClassKindSig res_kind
+       ; let (clas, edTyCon) = someStrangeParam  -- Unboxing parameters
        ; traceTc "tcClassDecl 1" (ppr class_name $$ ppr binders)
        ; let tycon_name = class_name        -- We use the same name
              roles = roles_info tycon_name  -- for TyCon and Class
@@ -2465,9 +2475,13 @@ tcClassDecl1 roles_info class_name hs_ctxt meths fundeps sigs ats at_defs
                   = Just (ctxt, at_stuff, sig_stuff, mindef)
 
        ; clas <- buildClass class_name binders roles fds body
-       ; traceTc "tcClassDecl" (ppr fundeps $$ ppr binders $$
-                                ppr fds)
-       ; return clas }
+       ; let (tyCon, _) = noDerivInfos (classTyCon clas)
+       ; traceTc "[EDA] Building DataCon named" (ppr dict_name)
+       ; eddatacon <- buildClassDictDataCon dict_name edTyCon binders body
+       ; traceTc "[EDA] Constructed DataCon" (ppr eddatacon)
+       ; let dictTyCon = mkDictTyCon dict_name tyCon eddatacon
+       ; traceTc "[EDA] Constructed TyCon" (ppr dictTyCon)
+       ; return (clas, dictTyCon) }
   where
     skol_info = TyConSkol ClassFlavour class_name
     tc_fundep :: GHC.Hs.FunDep GhcRn -> TcM ([Var],[Var])
@@ -3440,6 +3454,7 @@ tcConDecl new_or_data dd_info rep_tycon tc_bndrs res_kind tag_map
        ; is_infix <- tcConIsInfixH98 name hs_args
        ; rep_nm   <- newTyConRepName name
        ; fam_envs <- tcGetFamInstEnvs
+       ; traceTc "[EDA] Build the damn data con" (ppr name $$ ppr rep_nm)
        ; dc <- buildDataCon fam_envs name is_infix rep_nm
                             stricts Nothing field_lbls
                             tc_tvs ex_tvs user_tvbs

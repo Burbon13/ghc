@@ -8,7 +8,7 @@
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 module GHC.Tc.TyCl.Build (
-        buildDataCon,
+        buildDataCon, buildClassDictDataCon,
         buildPatSyn,
         TcMethInfo, MethInfo, buildClass,
         mkNewTyConRhs,
@@ -364,6 +364,47 @@ buildClass tycon_name binders roles fds
     mk_dm_info op_name (Just (GenericDM (loc, dm_ty)))
       = do { dm_name <- newImplicitBinderLoc op_name mkDefaultMethodOcc loc
            ; return (Just (dm_name, GenericDM dm_ty)) }
+
+
+buildClassDictDataCon :: Name
+           -> KnotTied TyCon
+           -> [TyConBinder]
+           -> Maybe (KnotTied ThetaType, [ClassATItem], [KnotTied MethInfo], ClassMinimalDef)
+           -> TcRnIf m n DataCon
+
+buildClassDictDataCon datacon_name tycon binders
+           (Just (sc_theta, at_items, sig_stuff, mindef))
+  =
+  do  { traceIf (text "buildClass")
+      ; datacon_name3 <- newImplicitBinder datacon_name mkClassEDataCon
+      ; let use_newtype = isSingleton arg_tys
+            op_tys     = [ty | (_,ty,_) <- sig_stuff]
+            op_names   = [op | (op,_,_) <- sig_stuff]
+            arg_tys    = sc_theta ++ op_tys
+            univ_bndrs = tyConInvisTVBinders binders
+            univ_tvs   = binderVars univ_bndrs
+
+      ; rep_nm   <- newTyConRepName datacon_name
+      ; dict_con <- buildDataCon (panic "buildClass: FamInstEnvs")
+                                 datacon_name
+                                 False        -- Not declared infix
+                                 rep_nm
+                                 (map (const no_bang) [])
+                                 (Just (map (const HsLazy) []))
+                                 [{- No fields -}]
+                                 univ_tvs
+                                 [{- no existentials -}]
+                                 univ_bndrs
+                                 [{- No GADT equalities -}]
+                                 [{- No theta -}]
+                                 (map unrestricted arg_tys) -- type classes are unrestricted
+                                 (mkTyConApp tycon (mkTyVarTys univ_tvs))
+                                 tycon
+                                 (mkTyConTagMap tycon)
+      ; return dict_con }
+    where
+      no_bang = HsSrcBang NoSourceText NoSrcUnpack NoSrcStrict
+
 
 {-
 Note [Class newtypes and equality predicates]

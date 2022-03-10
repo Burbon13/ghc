@@ -72,6 +72,7 @@ module GHC.Types.Name.Occurrence (
         mkInstTyCoOcc, mkEqPredCoOcc,
         mkRecFldSelOcc,
         mkTyConRepOcc,
+        mkClassEDataCon,
 
         -- ** Deconstruction
         occNameFS, occNameString, occNameSpace,
@@ -627,7 +628,7 @@ mkDataConWrapperOcc, mkWorkerOcc,
         mkDataConWorkerOcc, mkNewTyCoOcc,
         mkInstTyCoOcc, mkEqPredCoOcc, mkClassOpAuxOcc,
         mkCon2TagOcc, mkTag2ConOcc, mkMaxTagOcc, mkDataTOcc, mkDataCOcc,
-        mkTyConRepOcc
+        mkTyConRepOcc, mkClassEDataCon
    :: OccName -> OccName
 
 -- These derived variables have a prefix that no Haskell value could have
@@ -643,6 +644,7 @@ mkSpecOcc           = mk_simple_deriv varName  "$s"
 mkForeignExportOcc  = mk_simple_deriv varName  "$f"
 mkRepEqOcc          = mk_simple_deriv tvName   "$r"   -- In RULES involving Coercible
 mkClassDataConOcc   = mk_simple_deriv dataName "C:"   -- Data con for a class
+mkClassEDataCon     = mk_simple_deriv dataName "EDA:" -- Explicit Data Con
 mkNewTyCoOcc        = mk_simple_deriv tcName   "N:"   -- Coercion for newtypes
 mkInstTyCoOcc       = mk_simple_deriv tcName   "D:"   -- Coercion for type functions
 mkEqPredCoOcc       = mk_simple_deriv tcName   "$co"
