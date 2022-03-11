@@ -68,7 +68,7 @@ module GHC.Types.Name.Occurrence (
         mkDataTOcc, mkDataCOcc, mkDataConWorkerOcc,
         mkSuperDictSelOcc, mkSuperDictAuxOcc,
         mkLocalOcc, mkMethodOcc, mkInstTyTcOcc,
-        mkDictRecordTyConOcc, mkDictRecordOcc,
+        mkDictRecordTyConOcc, mkDictRecordOcc, mkDictRecordDataConOcc,
         mkInstTyCoOcc, mkEqPredCoOcc,
         mkRecFldSelOcc,
         mkTyConRepOcc,
@@ -765,10 +765,16 @@ which is going to be exposed.
 mkDictRecordTyConOcc :: OccName -> OccName
 mkDictRecordTyConOcc = mkDictRecordOcc tcClsName
 
+mkDictRecordDataConOcc :: OccName -> OccName
+mkDictRecordDataConOcc = mkDictConRecordOcc dataName
+
 mkDictRecordOcc :: NameSpace -> OccName -> OccName
 mkDictRecordOcc ns clsName =
     mkOccNameFS ns (occNameFS clsName `mappend` "__Dict")
-    -- mkOccNameFS ns (occNameFS clsName `mappend` ".Dict")
+
+mkDictConRecordOcc :: NameSpace -> OccName -> OccName
+mkDictConRecordOcc ns clsName =
+    mkOccNameFS ns (occNameFS clsName `mappend` "__Dict__Con")
 
 {-
 ************************************************************************

@@ -440,6 +440,7 @@ data TyClDecl pass
                 tcdLName   :: LIdP pass,               -- ^ Name of the class
                 tcdTyVars  :: LHsQTyVars pass,         -- ^ Class type variables
                 tcdLDictTy :: LIdP pass,               -- ^ EDA: Name of dictionary type constructor
+                tcdLDictCon :: LIdP pass,              -- ^ EDA: Name of dictionary data constructor
                 tcdFixity  :: LexicalFixity, -- ^ Fixity used in the declaration
                 tcdFDs     :: [LHsFunDep pass],         -- ^ Functional deps
                 tcdSigs    :: [LSig pass],              -- ^ Methods' signatures

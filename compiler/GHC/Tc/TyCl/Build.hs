@@ -376,7 +376,6 @@ buildClassDictDataCon datacon_name tycon binders
            (Just (sc_theta, _, sig_stuff, _))
   =
   do  { traceIf (text "buildClass")
-      ; datacon_name <- newImplicitBinder datacon_name mkClassEDataCon -- Add __Con to the name
       ; let op_tys     = [ty | (_,ty,_) <- sig_stuff]
             arg_tys    = sc_theta ++ op_tys
             univ_bndrs = tyConInvisTVBinders binders

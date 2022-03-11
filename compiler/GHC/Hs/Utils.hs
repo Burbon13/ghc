@@ -1367,8 +1367,9 @@ hsLTyClDeclBinders (L loc (ClassDecl
                                { tcdLName = (L _ cls_name)
                                , tcdSigs  = sigs
                                , tcdATs   = ats
-                               , tcdLDictTy = L _ dict_ty_name}))
-  = (L loc cls_name : L loc dict_ty_name :
+                               , tcdLDictTy = L _ dict_ty_name
+                               , tcdLDictCon = L _ dict_con_name }))
+  = (L loc cls_name : L loc dict_ty_name : L loc dict_con_name :
      [ L fam_loc fam_name | (L fam_loc (FamilyDecl
                                         { fdLName = L _ fam_name })) <- ats ]
      ++

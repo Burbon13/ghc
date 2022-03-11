@@ -179,6 +179,9 @@ mkInstD (L loc d) = L loc (InstD noExtField d)
 mkDictTyConName :: RdrName -> RdrName
 mkDictTyConName cls = mkRdrUnqual (mkDictRecordTyConOcc (rdrNameOcc cls))
 
+mkDictDataConName :: RdrName -> RdrName
+mkDictDataConName cls = mkRdrUnqual (mkDictRecordDataConOcc (rdrNameOcc cls))
+
 mkClassDecl :: SrcSpan
             -> Located (Maybe (LHsContext GhcPs), LHsType GhcPs)
             -> Located (a,[LHsFunDep GhcPs])
@@ -198,6 +201,7 @@ mkClassDecl loc' (L _ (mcxt, tycl_hdr)) fds where_cls layoutInfo annsIn
                                   , tcdCtxt = mcxt
                                   , tcdLName = cls, tcdTyVars = tyvars
                                   , tcdLDictTy = fmap mkDictTyConName cls
+                                  , tcdLDictCon = fmap mkDictDataConName cls
                                   , tcdFixity = fixity
                                   , tcdFDs = snd (unLoc fds)
                                   , tcdSigs = mkClassOpSigs sigs

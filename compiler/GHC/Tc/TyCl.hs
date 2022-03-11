@@ -2394,6 +2394,7 @@ tcTyClDecl1 _parent roles_info
 tcTyClDecl1 _parent roles_info
             (ClassDecl { tcdLName = L _ class_name
                        , tcdLDictTy = L _ dict_name
+                       , tcdLDictCon = L _ dict_con_name
                        , tcdCtxt = hs_ctxt
                        , tcdMeths = meths
                        , tcdFDs = fundeps
@@ -2402,7 +2403,7 @@ tcTyClDecl1 _parent roles_info
                        , tcdATDefs = at_defs })
   = ASSERT( isNothing _parent )
     do { traceTc "tcTyClDecl1 [1]" (ppr class_name)
-       ; (clas, dictTyCon) <- tcClassDecl1 roles_info class_name dict_name hs_ctxt
+       ; (clas, dictTyCon) <- tcClassDecl1 roles_info class_name dict_name dict_con_name hs_ctxt
                               meths fundeps sigs ats at_defs
        ; traceTc "tcTyClDecl1 [2]" (ppr class_name)
        ; let (tyCon, noDio) = noDerivInfos (classTyCon clas)
@@ -2417,11 +2418,11 @@ tcTyClDecl1 _parent roles_info
 *                                                                      *
 ********************************************************************* -}
 
-tcClassDecl1 :: RolesInfo -> Name -> Name -> Maybe (LHsContext GhcRn)
+tcClassDecl1 :: RolesInfo -> Name -> Name -> Name -> Maybe (LHsContext GhcRn)
              -> LHsBinds GhcRn -> [LHsFunDep GhcRn] -> [LSig GhcRn]
              -> [LFamilyDecl GhcRn] -> [LTyFamDefltDecl GhcRn]
              -> TcM (Class, TyCon)
-tcClassDecl1 roles_info class_name dict_name hs_ctxt meths fundeps sigs ats at_defs
+tcClassDecl1 roles_info class_name dict_name dict_con_name hs_ctxt meths fundeps sigs ats at_defs
   = fixM $ \ someStrangeParam ->
     -- We need the knot because 'clas' is passed into tcClassATs
     bindTyClTyVars class_name $ \ _ binders res_kind ->
@@ -2476,11 +2477,8 @@ tcClassDecl1 roles_info class_name dict_name hs_ctxt meths fundeps sigs ats at_d
 
        ; clas <- buildClass class_name binders roles fds body
        ; let (tyCon, _) = noDerivInfos (classTyCon clas)
-       ; traceTc "[EDA] Building DataCon named" (ppr dict_name)
-       ; eddatacon <- buildClassDictDataCon dict_name edTyCon binders body
-       ; traceTc "[EDA] Constructed DataCon" (ppr eddatacon)
+       ; eddatacon <- buildClassDictDataCon dict_con_name edTyCon binders body
        ; let dictTyCon = mkDictTyCon dict_name tyCon eddatacon
-       ; traceTc "[EDA] Constructed TyCon" (ppr dictTyCon)
        ; return (clas, dictTyCon) }
   where
     skol_info = TyConSkol ClassFlavour class_name

@@ -296,7 +296,7 @@ cvtDec (ClassD ctxt cl tvs fds decs)
                     , tcdFDs = fds', tcdSigs = Hs.mkClassOpSigs sigs'
                     , tcdMeths = binds'
                     , tcdATs = fams', tcdATDefs = at_defs', tcdDocs = []
-                    , tcdLDictTy = error "TODO EDA"}
+                    , tcdLDictTy = error "TODO EDA", tcdLDictCon = error "TODO EDA"}
                               -- no docs in TH ^^
         }
 
