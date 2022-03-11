@@ -38,7 +38,7 @@ PrintFile() {
   echo "<div>" >>$HTML_DUMP_FILE
   echo "<h3>$STAGE_NAME</h3>" >>$HTML_DUMP_FILE
 
-  echo "<code><div style=\"border:1px solid black; white-space: pre-wrap\">" >>$HTML_DUMP_FILE
+  echo "<code><div style=\"padding-left: 25px; padding-bottom: 10px; border:1px solid black; white-space: pre-wrap\">" >>$HTML_DUMP_FILE
   cat $IN_FILE >>$HTML_DUMP_FILE
   echo "</div></code>" >>$HTML_DUMP_FILE
 

@@ -373,13 +373,11 @@ buildClassDictDataCon :: Name
            -> TcRnIf m n DataCon
 
 buildClassDictDataCon datacon_name tycon binders
-           (Just (sc_theta, at_items, sig_stuff, mindef))
+           (Just (sc_theta, _, sig_stuff, _))
   =
   do  { traceIf (text "buildClass")
-      ; datacon_name3 <- newImplicitBinder datacon_name mkClassEDataCon
-      ; let use_newtype = isSingleton arg_tys
-            op_tys     = [ty | (_,ty,_) <- sig_stuff]
-            op_names   = [op | (op,_,_) <- sig_stuff]
+      ; datacon_name <- newImplicitBinder datacon_name mkClassEDataCon -- Add __Con to the name
+      ; let op_tys     = [ty | (_,ty,_) <- sig_stuff]
             arg_tys    = sc_theta ++ op_tys
             univ_bndrs = tyConInvisTVBinders binders
             univ_tvs   = binderVars univ_bndrs
@@ -404,7 +402,7 @@ buildClassDictDataCon datacon_name tycon binders
       ; return dict_con }
     where
       no_bang = HsSrcBang NoSourceText NoSrcUnpack NoSrcStrict
-
+buildClassDictDataCon _ _ _ _ = panic "THIS SHOULD NOT HAPPEN"
 
 {-
 Note [Class newtypes and equality predicates]
